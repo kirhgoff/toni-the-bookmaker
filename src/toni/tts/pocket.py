@@ -32,7 +32,7 @@ class PocketTTSEngine(TTSEngine):
 
     @property
     def max_chunk_chars(self) -> int:
-        return 1000
+        return 250
 
     def load(self) -> None:
         try:

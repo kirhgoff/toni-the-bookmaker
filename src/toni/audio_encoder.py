@@ -1,5 +1,6 @@
 """Audio encoding and concatenation utilities."""
 
+import wave
 from pathlib import Path
 from typing import Callable
 
@@ -34,6 +35,75 @@ def concatenate_audio(
             parts.append(silence)
 
     return np.concatenate(parts)
+
+
+def concatenate_from_files(
+    audio_paths: list[Path],
+    sample_rate: int,
+    pause_ms: int = 500,
+) -> np.ndarray:
+    """Concatenate audio from WAV files with pauses between them.
+
+    Args:
+        audio_paths: List of paths to WAV files.
+        sample_rate: Expected sample rate in Hz.
+        pause_ms: Duration of pause between chunks in milliseconds.
+
+    Returns:
+        Concatenated audio as a single numpy array.
+    """
+    if not audio_paths:
+        return np.array([], dtype=np.float32)
+
+    pause_samples = int(sample_rate * pause_ms / 1000)
+    silence = np.zeros(pause_samples, dtype=np.float32)
+
+    parts = []
+    for i, path in enumerate(audio_paths):
+        audio = load_chunk_wav(path)
+        parts.append(audio)
+        if i < len(audio_paths) - 1:
+            parts.append(silence)
+
+    return np.concatenate(parts)
+
+
+def save_chunk_wav(
+    audio: np.ndarray,
+    sample_rate: int,
+    output_path: Path,
+) -> None:
+    """Save a single audio chunk as WAV file.
+
+    Args:
+        audio: Audio data as float32 numpy array.
+        sample_rate: Sample rate in Hz.
+        output_path: Path to save the WAV file.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    audio_int16 = (audio * 32767).astype(np.int16)
+
+    with wave.open(str(output_path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(audio_int16.tobytes())
+
+
+def load_chunk_wav(input_path: Path) -> np.ndarray:
+    """Load a WAV file as float32 numpy array.
+
+    Args:
+        input_path: Path to the WAV file.
+
+    Returns:
+        Audio data as float32 numpy array.
+    """
+    with wave.open(str(input_path), "rb") as wav_file:
+        n_frames = wav_file.getnframes()
+        audio_bytes = wav_file.readframes(n_frames)
+        audio_int16 = np.frombuffer(audio_bytes, dtype=np.int16)
+        return audio_int16.astype(np.float32) / 32767.0
 
 
 def save_as_mp3(
@@ -110,8 +180,6 @@ def save_as_wav(
         sample_rate: Sample rate in Hz.
         output_path: Path to save the WAV file.
     """
-    import wave
-
     audio_int16 = (audio * 32767).astype(np.int16)
 
     with wave.open(str(output_path), "wb") as wav_file:

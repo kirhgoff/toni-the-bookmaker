@@ -36,6 +36,50 @@ def chunk_text(text: str, max_chars: int = 500) -> list[str]:
     return chunks
 
 
+def split_chunk(text: str, max_chars: int | None = None) -> list[str]:
+    """Split a single chunk into smaller pieces for retry.
+
+    This is used when TTS generation fails on a chunk. It splits
+    the text roughly in half at a sentence boundary.
+
+    Args:
+        text: The text to split.
+        max_chars: Optional max chars per sub-chunk. If None, splits in half.
+
+    Returns:
+        List of smaller text chunks (usually 2).
+    """
+    text = text.strip()
+    if not text:
+        return []
+
+    if max_chars is not None and len(text) <= max_chars:
+        return [text]
+
+    sentences = split_into_sentences(text)
+
+    if len(sentences) <= 1:
+        if max_chars is not None:
+            return split_long_sentence(text, max_chars)
+        mid = len(text) // 2
+        space_pos = text.rfind(" ", 0, mid)
+        if space_pos > 0:
+            return [text[:space_pos].strip(), text[space_pos:].strip()]
+        return [text]
+
+    mid_idx = len(sentences) // 2
+    first_half = " ".join(sentences[:mid_idx])
+    second_half = " ".join(sentences[mid_idx:])
+
+    result = []
+    if first_half.strip():
+        result.append(first_half.strip())
+    if second_half.strip():
+        result.append(second_half.strip())
+
+    return result if result else [text]
+
+
 def normalize_text(text: str) -> str:
     """Normalize text for TTS processing.
 
