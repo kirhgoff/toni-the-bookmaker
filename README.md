@@ -67,7 +67,7 @@ class TTSEngine(Protocol):
 
 ### 3. Text Processing (`src/toni/`)
 
-**`text_extractor.py`**: 
+**`text_extractor.py`**:
 - `extract_from_pdf(path) -> str`
 - `extract_from_text(path) -> str`
 - Auto-detect format by extension
@@ -116,7 +116,7 @@ uv run python -m toni.cli "$@"
 
 **Core (always installed):**
 - `click` - CLI framework
-- `pymupdf` - PDF extraction  
+- `pymupdf` - PDF extraction
 - `pydub` - Audio processing
 - `numpy` - Audio array handling
 
