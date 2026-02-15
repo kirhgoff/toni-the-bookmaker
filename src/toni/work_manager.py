@@ -81,6 +81,25 @@ class WorkManager:
         self.manifest_path = self.work_dir / "manifest.json"
         self._manifest: Manifest | None = None
 
+    @classmethod
+    def from_existing(cls, work_dir: str | Path) -> "WorkManager":
+        """Create WorkManager from an existing work directory.
+
+        This is useful for worker processes that need to access
+        an already-initialized work directory.
+
+        Args:
+            work_dir: Path to an existing work directory.
+
+        Returns:
+            WorkManager instance pointing to the existing directory.
+        """
+        work_dir = Path(work_dir)
+        output_stem = work_dir.name
+        work_base = work_dir.parent
+        dummy_output = work_base / f"{output_stem}.mp3"
+        return cls(dummy_output, work_base)
+
     @property
     def output_mp3_path(self) -> Path:
         """Path to the output MP3 file in work directory."""

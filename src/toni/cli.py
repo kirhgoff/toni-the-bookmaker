@@ -2,11 +2,11 @@
 
 import os
 import shutil
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from multiprocessing import Pool
 from pathlib import Path
-from threading import Lock
 
 import click
+from tqdm import tqdm
 
 from toni import __version__
 from toni.audio_encoder import concatenate_with_ffmpeg, save_chunk_wav
@@ -19,6 +19,134 @@ from toni.work_manager import WorkManager
 def get_default_workers() -> int:
     """Get default number of workers (half of CPU cores, minimum 1)."""
     return max(1, (os.cpu_count() or 2) // 2)
+
+
+_worker_engine = None
+_worker_voice_file: Path | None = None
+_worker_work_dir: str | None = None
+
+
+def _init_worker(model: str, voice_file_str: str | None, work_dir_str: str) -> None:
+    """Initialize TTS engine in worker process.
+
+    This runs once per worker process when the Pool is created.
+    The engine is stored in module-level globals for reuse across chunks.
+    """
+    global _worker_engine, _worker_voice_file, _worker_work_dir
+    from toni.tts import get_engine
+
+    _worker_engine = get_engine(model)
+    _worker_engine.load()
+    _worker_voice_file = Path(voice_file_str) if voice_file_str else None
+    _worker_work_dir = work_dir_str
+
+
+def _process_chunk_in_worker(args: tuple) -> tuple[str, bool, list[str]]:
+    """Process a single chunk in a worker process.
+
+    Args:
+        args: Tuple of (chunk_id, max_depth, verbose)
+
+    Returns:
+        Tuple of (chunk_id, success, list of generated audio chunk ids)
+    """
+    chunk_id, max_depth, verbose = args
+
+    work = WorkManager.from_existing(_worker_work_dir)
+    generated_ids = []
+
+    success = _process_chunk_recursive(
+        work=work,
+        engine=_worker_engine,
+        chunk_id=chunk_id,
+        voice_file=_worker_voice_file,
+        max_depth=max_depth,
+        current_depth=0,
+        verbose=verbose,
+        generated_ids=generated_ids,
+    )
+
+    return chunk_id, success, generated_ids
+
+
+def _process_chunk_recursive(
+    work: "WorkManager",
+    engine,
+    chunk_id: str,
+    voice_file: Path | None,
+    max_depth: int,
+    current_depth: int,
+    verbose: bool,
+    generated_ids: list[str],
+) -> bool:
+    """Process a chunk with depth-based retry limiting.
+
+    When a chunk fails and current_depth < max_depth, it splits the chunk
+    and recursively processes sub-chunks with current_depth + 1.
+
+    Args:
+        work: WorkManager instance
+        engine: TTS engine instance
+        chunk_id: ID of the chunk to process
+        voice_file: Optional voice sample path
+        max_depth: Maximum split depth (from --max-retries CLI option)
+        current_depth: Current recursion depth (0 for original chunks)
+        verbose: Whether to print verbose output
+        generated_ids: List to append generated audio chunk IDs to
+
+    Returns:
+        True if chunk (and all sub-chunks) processed successfully
+    """
+    text = work.load_chunk_text(chunk_id)
+
+    try:
+        audio = engine.generate(text, voice_sample=voice_file)
+        audio_path = work.get_chunk_audio_path(chunk_id)
+        save_chunk_wav(audio, engine.sample_rate, audio_path)
+        work.set_chunk_status(chunk_id, "completed")
+        generated_ids.append(chunk_id)
+        return True
+
+    except Exception as e:
+        error_msg = str(e)
+        if verbose:
+            click.echo(
+                f"\nChunk {chunk_id} failed (depth={current_depth}): {error_msg[:100]}"
+            )
+
+        if current_depth < max_depth:
+            if verbose:
+                click.echo(
+                    f"Splitting chunk {chunk_id} (depth {current_depth} -> {current_depth + 1}, max={max_depth})..."
+                )
+
+            sub_texts = split_chunk(text)
+            if len(sub_texts) > 1:
+                sub_ids = []
+                for i, sub_text in enumerate(sub_texts):
+                    sub_id = f"{chunk_id}_{i}"
+                    sub_ids.append(sub_id)
+                    work.add_sub_chunk(chunk_id, sub_id, sub_text)
+
+                all_success = True
+                for sub_id in sub_ids:
+                    success = _process_chunk_recursive(
+                        work=work,
+                        engine=engine,
+                        chunk_id=sub_id,
+                        voice_file=voice_file,
+                        max_depth=max_depth,
+                        current_depth=current_depth + 1,
+                        verbose=verbose,
+                        generated_ids=generated_ids,
+                    )
+                    if not success:
+                        all_success = False
+
+                return all_success
+
+        work.set_chunk_status(chunk_id, "failed", error=error_msg)
+        return False
 
 
 @click.command()
@@ -275,24 +403,21 @@ def process_chunks_single(
     engine.load()
 
     pending = work.get_pending_chunks()
-    total = len(pending)
 
-    with click.progressbar(
-        pending,
-        length=total,
-        label="Processing",
-        show_percent=True,
-        show_pos=True,
-    ) as progress:
-        for chunk_id in progress:
-            process_single_chunk(
-                work=work,
-                engine=engine,
-                chunk_id=chunk_id,
-                voice_file=voice_file,
-                max_retries=max_retries,
-                verbose=verbose,
-            )
+    for chunk_id in tqdm(pending, desc="Processing", unit="chunk"):
+        generated_ids: list[str] = []
+        _process_chunk_recursive(
+            work=work,
+            engine=engine,
+            chunk_id=chunk_id,
+            voice_file=voice_file,
+            max_depth=max_retries,
+            current_depth=0,
+            verbose=verbose,
+            generated_ids=generated_ids,
+        )
+
+    engine.unload()
 
 
 def process_chunks_parallel(
@@ -303,168 +428,44 @@ def process_chunks_parallel(
     workers: int,
     verbose: bool,
 ) -> None:
-    """Process chunks in parallel using ThreadPoolExecutor."""
+    """Process chunks in parallel using multiprocessing.Pool.
+
+    Each worker process loads its own TTS model instance to avoid
+    thread-safety issues with shared model state.
+    """
     pending = work.get_pending_chunks()
     total = len(pending)
 
-    chunk_batches = distribute_chunks(pending, workers)
+    if verbose:
+        click.echo(f"Processing {total} chunks with {workers} worker processes")
+
+    voice_file_str = str(voice_file) if voice_file else None
+    work_dir_str = str(work.work_dir)
+
+    tasks = [(chunk_id, max_retries, verbose) for chunk_id in pending]
+
+    completed = 0
+    failed = 0
+
+    with Pool(
+        processes=workers,
+        initializer=_init_worker,
+        initargs=(model, voice_file_str, work_dir_str),
+    ) as pool:
+        results = pool.imap_unordered(_process_chunk_in_worker, tasks)
+
+        for chunk_id, success, generated_ids in tqdm(
+            results, total=total, desc="Processing", unit="chunk"
+        ):
+            if success:
+                completed += 1
+            else:
+                failed += 1
 
     if verbose:
-        click.echo(f"Distributing {total} chunks across {len(chunk_batches)} workers")
-        for i, batch in enumerate(chunk_batches):
-            click.echo(f"  Worker {i + 1}: {len(batch)} chunks")
-
-    completed_count = 0
-    failed_count = 0
-    lock = Lock()
-
-    def worker_fn(worker_id: int, chunk_ids: list[str]) -> dict:
-        nonlocal completed_count, failed_count
-
-        engine = get_engine(model)
-        engine.load()
-
-        results = {"completed": 0, "failed": 0}
-
-        for chunk_id in chunk_ids:
-            success = process_single_chunk(
-                work=work,
-                engine=engine,
-                chunk_id=chunk_id,
-                voice_file=voice_file,
-                max_retries=max_retries,
-                verbose=verbose,
-            )
-
-            with lock:
-                if success:
-                    completed_count += 1
-                    results["completed"] += 1
-                else:
-                    failed_count += 1
-                    results["failed"] += 1
-
-        engine.unload()
-        return results
-
-    with click.progressbar(
-        length=total,
-        label="Processing",
-        show_percent=True,
-        show_pos=True,
-    ) as progress_bar:
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {
-                executor.submit(worker_fn, i, batch): i
-                for i, batch in enumerate(chunk_batches)
-            }
-
-            last_count = 0
-            while futures:
-                for future in list(futures.keys()):
-                    if future.done():
-                        del futures[future]
-
-                current_count = completed_count + failed_count
-                if current_count > last_count:
-                    progress_bar.update(current_count - last_count)
-                    last_count = current_count
-
-                import time
-
-                time.sleep(0.1)
-
-            final_count = completed_count + failed_count
-            if final_count > last_count:
-                progress_bar.update(final_count - last_count)
-
-
-def distribute_chunks(chunk_ids: list[str], num_workers: int) -> list[list[str]]:
-    """Distribute chunk IDs evenly across workers.
-
-    Args:
-        chunk_ids: List of chunk IDs to distribute.
-        num_workers: Number of workers.
-
-    Returns:
-        List of lists, where each inner list contains chunk IDs for one worker.
-    """
-    if not chunk_ids:
-        return []
-
-    num_workers = min(num_workers, len(chunk_ids))
-
-    batches = [[] for _ in range(num_workers)]
-    for i, chunk_id in enumerate(chunk_ids):
-        batches[i % num_workers].append(chunk_id)
-
-    return [batch for batch in batches if batch]
-
-
-def process_single_chunk(
-    work: WorkManager,
-    engine,
-    chunk_id: str,
-    voice_file: Path | None,
-    max_retries: int,
-    verbose: bool,
-    current_retry: int = 0,
-) -> bool:
-    """Process a single chunk with error handling and retry.
-
-    Returns True if successful, False otherwise.
-    """
-    text = work.load_chunk_text(chunk_id)
-
-    try:
-        audio = engine.generate(text, voice_sample=voice_file)
-        audio_path = work.get_chunk_audio_path(chunk_id)
-        save_chunk_wav(audio, engine.sample_rate, audio_path)
-        work.set_chunk_status(chunk_id, "completed")
-        return True
-
-    except Exception as e:
-        error_msg = str(e)
-        if verbose:
-            click.echo(f"\nChunk {chunk_id} failed: {error_msg[:100]}")
-
-        retries = work.get_retries(chunk_id)
-        if retries < max_retries:
-            if verbose:
-                click.echo(
-                    f"Splitting chunk {chunk_id} for retry ({retries + 1}/{max_retries})..."
-                )
-
-            sub_texts = split_chunk(text)
-            if len(sub_texts) > 1:
-                sub_ids = []
-                for i, sub_text in enumerate(sub_texts):
-                    sub_id = f"{chunk_id}_{i}"
-                    sub_ids.append(sub_id)
-                    work.add_sub_chunk(chunk_id, sub_id, sub_text)
-
-                all_success = True
-                for sub_id in sub_ids:
-                    success = process_single_chunk(
-                        work=work,
-                        engine=engine,
-                        chunk_id=sub_id,
-                        voice_file=voice_file,
-                        max_retries=max_retries,
-                        verbose=verbose,
-                        current_retry=current_retry + 1,
-                    )
-                    if not success:
-                        all_success = False
-
-                return all_success
-            else:
-                work.increment_retries(chunk_id)
-                work.set_chunk_status(chunk_id, "failed", error=error_msg)
-                return False
-        else:
-            work.set_chunk_status(chunk_id, "failed", error=error_msg)
-            return False
+        click.echo(
+            f"\nParallel processing complete: {completed} succeeded, {failed} failed"
+        )
 
 
 if __name__ == "__main__":

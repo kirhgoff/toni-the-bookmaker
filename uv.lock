@@ -825,7 +825,7 @@ name = "cuda-bindings"
 version = "12.9.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cuda-pathfinder" },
+    { name = "cuda-pathfinder", marker = "(sys_platform != 'linux' and extra == 'extra-4-toni-pocket') or (sys_platform == 'linux' and extra == 'extra-4-toni-kani') or (extra != 'extra-4-toni-kani' and extra == 'extra-4-toni-pocket')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/37/31/bfcc870f69c6a017c4ad5c42316207fc7551940db6f3639aa4466ec5faf3/cuda_bindings-12.9.4-cp310-cp310-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:a022c96b8bd847e8dc0675523431149a4c3e872f440e3002213dbb9e08f0331a", size = 11800959, upload-time = "2025-10-21T14:51:26.458Z" },
@@ -3368,7 +3368,7 @@ name = "nvidia-cudnn-cu12"
 version = "9.10.2.21"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12" },
+    { name = "nvidia-cublas-cu12", marker = "(sys_platform != 'linux' and extra == 'extra-4-toni-pocket') or (sys_platform == 'linux' and extra == 'extra-4-toni-kani') or (extra != 'extra-4-toni-kani' and extra == 'extra-4-toni-pocket')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fa/41/e79269ce215c857c935fd86bcfe91a451a584dfc27f1e068f568b9ad1ab7/nvidia_cudnn_cu12-9.10.2.21-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:c9132cc3f8958447b4910a1720036d9eff5928cc3179b0a51fb6d167c6cc87d8", size = 705026878, upload-time = "2025-06-06T21:52:51.348Z" },
@@ -3381,7 +3381,7 @@ name = "nvidia-cufft-cu12"
 version = "11.3.3.83"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12" },
+    { name = "nvidia-nvjitlink-cu12", marker = "(sys_platform != 'linux' and extra == 'extra-4-toni-pocket') or (sys_platform == 'linux' and extra == 'extra-4-toni-kani') or (extra != 'extra-4-toni-kani' and extra == 'extra-4-toni-pocket')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/60/bc/7771846d3a0272026c416fbb7e5f4c1f146d6d80704534d0b187dd6f4800/nvidia_cufft_cu12-11.3.3.83-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:848ef7224d6305cdb2a4df928759dca7b1201874787083b6e7550dd6765ce69a", size = 193109211, upload-time = "2025-03-07T01:44:56.873Z" },
@@ -3413,9 +3413,9 @@ name = "nvidia-cusolver-cu12"
 version = "11.7.3.90"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12" },
-    { name = "nvidia-cusparse-cu12" },
-    { name = "nvidia-nvjitlink-cu12" },
+    { name = "nvidia-cublas-cu12", marker = "(sys_platform != 'linux' and extra == 'extra-4-toni-pocket') or (sys_platform == 'linux' and extra == 'extra-4-toni-kani') or (extra != 'extra-4-toni-kani' and extra == 'extra-4-toni-pocket')" },
+    { name = "nvidia-cusparse-cu12", marker = "(sys_platform != 'linux' and extra == 'extra-4-toni-pocket') or (sys_platform == 'linux' and extra == 'extra-4-toni-kani') or (extra != 'extra-4-toni-kani' and extra == 'extra-4-toni-pocket')" },
+    { name = "nvidia-nvjitlink-cu12", marker = "(sys_platform != 'linux' and extra == 'extra-4-toni-pocket') or (sys_platform == 'linux' and extra == 'extra-4-toni-kani') or (extra != 'extra-4-toni-kani' and extra == 'extra-4-toni-pocket')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/32/f7cd6ce8a7690544d084ea21c26e910a97e077c9b7f07bf5de623ee19981/nvidia_cusolver_cu12-11.7.3.90-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:db9ed69dbef9715071232caa9b69c52ac7de3a95773c2db65bdba85916e4e5c0", size = 267229841, upload-time = "2025-03-07T01:46:54.356Z" },
@@ -3428,7 +3428,7 @@ name = "nvidia-cusparse-cu12"
 version = "12.5.8.93"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12" },
+    { name = "nvidia-nvjitlink-cu12", marker = "(sys_platform != 'linux' and extra == 'extra-4-toni-pocket') or (sys_platform == 'linux' and extra == 'extra-4-toni-kani') or (extra != 'extra-4-toni-kani' and extra == 'extra-4-toni-pocket')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bc/f7/cd777c4109681367721b00a106f491e0d0d15cfa1fd59672ce580ce42a97/nvidia_cusparse_cu12-12.5.8.93-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:9b6c161cb130be1a07a27ea6923df8141f3c295852f4b260c65f18f3e0a091dc", size = 288117129, upload-time = "2025-03-07T01:47:40.407Z" },
@@ -5592,6 +5592,7 @@ dependencies = [
     { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.11' and extra != 'extra-4-toni-kani') or (extra == 'extra-4-toni-kani' and extra == 'extra-4-toni-pocket')" },
     { name = "pydub" },
     { name = "pymupdf" },
+    { name = "tqdm" },
 ]
 
 [package.optional-dependencies]
@@ -5611,6 +5612,7 @@ requires-dist = [
     { name = "pocket-tts", marker = "extra == 'pocket'" },
     { name = "pydub", specifier = ">=0.25.0" },
     { name = "pymupdf", specifier = ">=1.24.0" },
+    { name = "tqdm", specifier = ">=4.65.0" },
     { name = "transformers", marker = "extra == 'kani'", specifier = ">=4.50.0" },
 ]
 provides-extras = ["pocket", "kani"]
@@ -5774,7 +5776,7 @@ name = "tqdm"
 version = "4.67.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-4-toni-kani' and extra == 'extra-4-toni-pocket')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/09/a9/6ba95a270c6f1fbcd8dac228323f2777d886cb206987444e4bce66338dd4/tqdm-4.67.3.tar.gz", hash = "sha256:7d825f03f89244ef73f1d4ce193cb1774a8179fd96f31d7e1dcde62092b960bb", size = 169598, upload-time = "2026-02-03T17:35:53.048Z" }
 wheels = [
