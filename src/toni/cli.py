@@ -1,15 +1,24 @@
 """CLI entry point for Toni the Book Maker."""
 
+import os
+import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from threading import Lock
 
 import click
 
 from toni import __version__
-from toni.audio_encoder import concatenate_from_files, save_as_mp3, save_chunk_wav
+from toni.audio_encoder import concatenate_with_ffmpeg, save_chunk_wav
 from toni.chunker import chunk_text, split_chunk
 from toni.text_extractor import extract_text
 from toni.tts import get_engine, list_engines
 from toni.work_manager import WorkManager
+
+
+def get_default_workers() -> int:
+    """Get default number of workers (half of CPU cores, minimum 1)."""
+    return max(1, (os.cpu_count() or 2) // 2)
 
 
 @click.command()
@@ -69,6 +78,12 @@ from toni.work_manager import WorkManager
     help="Max retries for failed chunks (with auto-split).",
 )
 @click.option(
+    "--workers",
+    type=int,
+    default=None,
+    help=f"Number of parallel workers. Default: {get_default_workers()} (half of CPU cores).",
+)
+@click.option(
     "--verbose",
     is_flag=True,
     help="Show detailed progress.",
@@ -83,6 +98,7 @@ def main(
     bitrate: str,
     work_dir: Path | None,
     max_retries: int,
+    workers: int | None,
     verbose: bool,
 ) -> None:
     """Generate audiobook from PDF or text file.
@@ -90,6 +106,7 @@ def main(
     Features:
     - Auto-resume: If a previous run exists, automatically continues from where it stopped
     - Auto-retry: Failed chunks are automatically split and retried
+    - Parallel processing: Use --workers to process chunks in parallel
     - Work directory: All intermediate files are saved for inspection and recovery
 
     Examples:
@@ -98,10 +115,13 @@ def main(
 
         toni -i story.txt --voice my_voice.wav --model pocket
 
-        toni -i document.pdf -m kani --bitrate 320k
+        toni -i document.pdf --workers 4 --bitrate 320k
     """
     if output_file is None:
         output_file = input_file.with_suffix(".mp3")
+
+    if workers is None:
+        workers = get_default_workers()
 
     work_base = work_dir if work_dir else Path("./work")
     work = WorkManager(output_file, work_base)
@@ -110,6 +130,7 @@ def main(
         click.echo(f"Input: {input_file}")
         click.echo(f"Output: {output_file}")
         click.echo(f"Model: {model}")
+        click.echo(f"Workers: {workers}")
         click.echo(f"Work directory: {work.work_dir}")
         if voice_file:
             click.echo(f"Voice: {voice_file}")
@@ -123,6 +144,8 @@ def main(
             f"Progress: {progress['completed']}/{progress['total']} completed, "
             f"{progress['failed']} failed, {progress['pending']} pending"
         )
+
+        voice_file_for_tts = work.get_copied_voice_path()
     else:
         click.echo("Extracting text...")
         text = extract_text(input_file)
@@ -130,7 +153,7 @@ def main(
         if verbose:
             click.echo(f"Extracted {len(text)} characters")
 
-        click.echo(f"Loading {model} TTS model...")
+        click.echo(f"Loading {model} TTS model to get settings...")
         engine = get_engine(model)
         engine.load()
 
@@ -142,6 +165,11 @@ def main(
 
         click.echo("Setting up work directory...")
         work.setup()
+
+        click.echo("Copying input files to work directory...")
+        copied_input = work.copy_input_file(input_file)
+        copied_voice = work.copy_voice_file(voice_file) if voice_file else None
+
         manifest = work.init_manifest(
             input_file=input_file,
             output_file=output_file,
@@ -150,6 +178,8 @@ def main(
             sample_rate=engine.sample_rate,
             chunk_pause_ms=chunk_pause,
             total_chunks=total_chunks,
+            copied_input=copied_input,
+            copied_voice=copied_voice,
         )
 
         for i, chunk in enumerate(chunks):
@@ -157,21 +187,34 @@ def main(
 
         click.echo(f"Saved {total_chunks} text chunks to {work.chunks_dir}")
 
-    engine = get_engine(manifest.model)
-    engine.load()
+        voice_file_for_tts = copied_voice
+        engine.unload()
 
     pending_chunks = work.get_pending_chunks()
     if not pending_chunks:
         click.echo("No pending chunks to process.")
     else:
-        click.echo(f"Processing {len(pending_chunks)} chunks...")
-        process_chunks(
-            work=work,
-            engine=engine,
-            voice_file=Path(manifest.voice_file) if manifest.voice_file else None,
-            max_retries=max_retries,
-            verbose=verbose,
+        click.echo(
+            f"Processing {len(pending_chunks)} chunks with {workers} worker(s)..."
         )
+
+        if workers == 1:
+            process_chunks_single(
+                work=work,
+                model=manifest.model,
+                voice_file=voice_file_for_tts,
+                max_retries=max_retries,
+                verbose=verbose,
+            )
+        else:
+            process_chunks_parallel(
+                work=work,
+                model=manifest.model,
+                voice_file=voice_file_for_tts,
+                max_retries=max_retries,
+                workers=workers,
+                verbose=verbose,
+            )
 
     progress = work.get_progress_summary()
     click.echo(
@@ -190,39 +233,47 @@ def main(
         click.echo("Error: No audio chunks generated. Cannot create output file.")
         return
 
-    click.echo(f"Concatenating {len(audio_chunk_ids)} audio chunks...")
+    click.echo(f"Concatenating {len(audio_chunk_ids)} audio chunks with ffmpeg...")
     audio_paths = [work.get_chunk_audio_path(cid) for cid in audio_chunk_ids]
-    full_audio = concatenate_from_files(
-        audio_paths,
+
+    concatenate_with_ffmpeg(
+        audio_paths=audio_paths,
+        output_path=work.output_mp3_path,
         sample_rate=manifest.sample_rate,
         pause_ms=manifest.chunk_pause_ms,
-    )
-
-    click.echo("Encoding to MP3...")
-    save_as_mp3(
-        full_audio,
-        sample_rate=manifest.sample_rate,
-        output_path=output_file,
         bitrate=bitrate,
+        work_dir=work.work_dir,
     )
 
-    duration_seconds = len(full_audio) / manifest.sample_rate
-    duration_minutes = duration_seconds / 60
+    if output_file.resolve() != work.output_mp3_path.resolve():
+        click.echo(f"Copying output to {output_file}...")
+        shutil.copy2(work.output_mp3_path, output_file)
 
-    click.echo(
-        f"\nDone! Generated {duration_minutes:.1f} minutes of audio: {output_file}"
-    )
-    click.echo(f"Work directory preserved at: {work.work_dir}")
+    import wave
+
+    total_duration_seconds = 0
+    for audio_path in audio_paths:
+        with wave.open(str(audio_path), "rb") as wf:
+            total_duration_seconds += wf.getnframes() / wf.getframerate()
+
+    duration_minutes = total_duration_seconds / 60
+
+    click.echo(f"\nDone! Generated {duration_minutes:.1f} minutes of audio")
+    click.echo(f"Output: {output_file}")
+    click.echo(f"Work directory: {work.work_dir}")
 
 
-def process_chunks(
+def process_chunks_single(
     work: WorkManager,
-    engine,
+    model: str,
     voice_file: Path | None,
     max_retries: int,
     verbose: bool,
 ) -> None:
-    """Process all pending chunks with retry logic."""
+    """Process all pending chunks sequentially with a single worker."""
+    engine = get_engine(model)
+    engine.load()
+
     pending = work.get_pending_chunks()
     total = len(pending)
 
@@ -242,6 +293,112 @@ def process_chunks(
                 max_retries=max_retries,
                 verbose=verbose,
             )
+
+
+def process_chunks_parallel(
+    work: WorkManager,
+    model: str,
+    voice_file: Path | None,
+    max_retries: int,
+    workers: int,
+    verbose: bool,
+) -> None:
+    """Process chunks in parallel using ThreadPoolExecutor."""
+    pending = work.get_pending_chunks()
+    total = len(pending)
+
+    chunk_batches = distribute_chunks(pending, workers)
+
+    if verbose:
+        click.echo(f"Distributing {total} chunks across {len(chunk_batches)} workers")
+        for i, batch in enumerate(chunk_batches):
+            click.echo(f"  Worker {i + 1}: {len(batch)} chunks")
+
+    completed_count = 0
+    failed_count = 0
+    lock = Lock()
+
+    def worker_fn(worker_id: int, chunk_ids: list[str]) -> dict:
+        nonlocal completed_count, failed_count
+
+        engine = get_engine(model)
+        engine.load()
+
+        results = {"completed": 0, "failed": 0}
+
+        for chunk_id in chunk_ids:
+            success = process_single_chunk(
+                work=work,
+                engine=engine,
+                chunk_id=chunk_id,
+                voice_file=voice_file,
+                max_retries=max_retries,
+                verbose=verbose,
+            )
+
+            with lock:
+                if success:
+                    completed_count += 1
+                    results["completed"] += 1
+                else:
+                    failed_count += 1
+                    results["failed"] += 1
+
+        engine.unload()
+        return results
+
+    with click.progressbar(
+        length=total,
+        label="Processing",
+        show_percent=True,
+        show_pos=True,
+    ) as progress_bar:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(worker_fn, i, batch): i
+                for i, batch in enumerate(chunk_batches)
+            }
+
+            last_count = 0
+            while futures:
+                for future in list(futures.keys()):
+                    if future.done():
+                        del futures[future]
+
+                current_count = completed_count + failed_count
+                if current_count > last_count:
+                    progress_bar.update(current_count - last_count)
+                    last_count = current_count
+
+                import time
+
+                time.sleep(0.1)
+
+            final_count = completed_count + failed_count
+            if final_count > last_count:
+                progress_bar.update(final_count - last_count)
+
+
+def distribute_chunks(chunk_ids: list[str], num_workers: int) -> list[list[str]]:
+    """Distribute chunk IDs evenly across workers.
+
+    Args:
+        chunk_ids: List of chunk IDs to distribute.
+        num_workers: Number of workers.
+
+    Returns:
+        List of lists, where each inner list contains chunk IDs for one worker.
+    """
+    if not chunk_ids:
+        return []
+
+    num_workers = min(num_workers, len(chunk_ids))
+
+    batches = [[] for _ in range(num_workers)]
+    for i, chunk_id in enumerate(chunk_ids):
+        batches[i % num_workers].append(chunk_id)
+
+    return [batch for batch in batches if batch]
 
 
 def process_single_chunk(

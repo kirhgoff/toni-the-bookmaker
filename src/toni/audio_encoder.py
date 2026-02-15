@@ -1,5 +1,6 @@
 """Audio encoding and concatenation utilities."""
 
+import subprocess
 import wave
 from pathlib import Path
 from typing import Callable
@@ -66,6 +67,106 @@ def concatenate_from_files(
             parts.append(silence)
 
     return np.concatenate(parts)
+
+
+def concatenate_with_ffmpeg(
+    audio_paths: list[Path],
+    output_path: Path,
+    sample_rate: int,
+    pause_ms: int = 500,
+    bitrate: str = "192k",
+    work_dir: Path | None = None,
+) -> None:
+    """Concatenate WAV files using ffmpeg concat demuxer and encode to MP3.
+
+    This is more efficient for large numbers of files as it avoids
+    loading all audio into memory.
+
+    Args:
+        audio_paths: List of paths to WAV files to concatenate.
+        output_path: Path for the output MP3 file.
+        sample_rate: Sample rate in Hz (for generating silence).
+        pause_ms: Duration of pause between chunks in milliseconds.
+        bitrate: MP3 bitrate (e.g., "128k", "192k", "320k").
+        work_dir: Directory to store temporary files. Uses output_path.parent if None.
+
+    Raises:
+        RuntimeError: If ffmpeg is not available or fails.
+    """
+    if not audio_paths:
+        raise ValueError("No audio files to concatenate")
+
+    if work_dir is None:
+        work_dir = output_path.parent
+
+    silence_path = work_dir / "silence.wav"
+    concat_list_path = work_dir / "concat_list.txt"
+
+    create_silence_wav(silence_path, sample_rate, pause_ms)
+
+    with open(concat_list_path, "w") as f:
+        for i, audio_path in enumerate(audio_paths):
+            escaped_path = str(audio_path.absolute()).replace("'", "'\\''")
+            f.write(f"file '{escaped_path}'\n")
+            if i < len(audio_paths) - 1:
+                escaped_silence = str(silence_path.absolute()).replace("'", "'\\''")
+                f.write(f"file '{escaped_silence}'\n")
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(concat_list_path),
+        "-c:a",
+        "libmp3lame",
+        "-b:a",
+        bitrate,
+        "-ar",
+        str(sample_rate),
+        str(output_path),
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError:
+        raise RuntimeError(
+            "ffmpeg is not installed or not in PATH. "
+            "Install it with: brew install ffmpeg (macOS) or "
+            "apt install ffmpeg (Linux)"
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"ffmpeg failed: {e.stderr}")
+
+
+def create_silence_wav(
+    output_path: Path,
+    sample_rate: int,
+    duration_ms: int,
+) -> None:
+    """Create a WAV file containing silence.
+
+    Args:
+        output_path: Path to save the silence WAV file.
+        sample_rate: Sample rate in Hz.
+        duration_ms: Duration of silence in milliseconds.
+    """
+    num_samples = int(sample_rate * duration_ms / 1000)
+    silence = np.zeros(num_samples, dtype=np.int16)
+
+    with wave.open(str(output_path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(silence.tobytes())
 
 
 def save_chunk_wav(

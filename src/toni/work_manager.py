@@ -1,12 +1,13 @@
 """Work directory and manifest management for resumable processing."""
 
 import json
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 
-MANIFEST_VERSION = "1.0"
+MANIFEST_VERSION = "1.1"
 
 
 @dataclass
@@ -27,6 +28,8 @@ class Manifest:
     sample_rate: int = 0
     chunk_pause_ms: int = 500
     total_chunks: int = 0
+    copied_input: str | None = None
+    copied_voice: str | None = None
     chunks: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -39,6 +42,8 @@ class Manifest:
             "sample_rate": self.sample_rate,
             "chunk_pause_ms": self.chunk_pause_ms,
             "total_chunks": self.total_chunks,
+            "copied_input": self.copied_input,
+            "copied_voice": self.copied_voice,
             "chunks": self.chunks,
         }
 
@@ -53,6 +58,8 @@ class Manifest:
             sample_rate=data.get("sample_rate", 0),
             chunk_pause_ms=data.get("chunk_pause_ms", 500),
             total_chunks=data.get("total_chunks", 0),
+            copied_input=data.get("copied_input"),
+            copied_voice=data.get("copied_voice"),
             chunks=data.get("chunks", {}),
         )
 
@@ -68,14 +75,31 @@ class WorkManager:
             work_base = Path("./work")
 
         self.work_dir = work_base / self.output_stem
+        self.input_dir = self.work_dir / "input"
         self.chunks_dir = self.work_dir / "chunks"
         self.audio_dir = self.work_dir / "audio"
         self.manifest_path = self.work_dir / "manifest.json"
         self._manifest: Manifest | None = None
 
+    @property
+    def output_mp3_path(self) -> Path:
+        """Path to the output MP3 file in work directory."""
+        return self.work_dir / "output.mp3"
+
+    @property
+    def concat_list_path(self) -> Path:
+        """Path to ffmpeg concat list file."""
+        return self.work_dir / "concat_list.txt"
+
+    @property
+    def silence_path(self) -> Path:
+        """Path to silence WAV file for pauses."""
+        return self.work_dir / "silence.wav"
+
     def setup(self) -> None:
         """Create work directory structure."""
         self.work_dir.mkdir(parents=True, exist_ok=True)
+        self.input_dir.mkdir(exist_ok=True)
         self.chunks_dir.mkdir(exist_ok=True)
         self.audio_dir.mkdir(exist_ok=True)
 
@@ -105,6 +129,48 @@ class WorkManager:
         with open(self.manifest_path, "w") as f:
             json.dump(self._manifest.to_dict(), f, indent=2)
 
+    def copy_input_file(self, source: Path) -> Path:
+        """Copy input file to work directory.
+
+        Args:
+            source: Path to the original input file.
+
+        Returns:
+            Path to the copied file in work directory.
+        """
+        dest = self.input_dir / source.name
+        if not dest.exists():
+            shutil.copy2(source, dest)
+        return dest
+
+    def copy_voice_file(self, source: Path) -> Path:
+        """Copy voice sample file to work directory.
+
+        Args:
+            source: Path to the original voice file.
+
+        Returns:
+            Path to the copied file in work directory.
+        """
+        dest = self.input_dir / source.name
+        if not dest.exists():
+            shutil.copy2(source, dest)
+        return dest
+
+    def get_copied_input_path(self) -> Path | None:
+        """Get path to the copied input file."""
+        manifest = self.load_manifest()
+        if manifest.copied_input:
+            return self.work_dir / manifest.copied_input
+        return None
+
+    def get_copied_voice_path(self) -> Path | None:
+        """Get path to the copied voice file."""
+        manifest = self.load_manifest()
+        if manifest.copied_voice:
+            return self.work_dir / manifest.copied_voice
+        return None
+
     def init_manifest(
         self,
         input_file: Path,
@@ -114,6 +180,8 @@ class WorkManager:
         sample_rate: int,
         chunk_pause_ms: int,
         total_chunks: int,
+        copied_input: Path | None = None,
+        copied_voice: Path | None = None,
     ) -> Manifest:
         """Initialize a new manifest with run parameters."""
         self._manifest = Manifest(
@@ -125,6 +193,12 @@ class WorkManager:
             sample_rate=sample_rate,
             chunk_pause_ms=chunk_pause_ms,
             total_chunks=total_chunks,
+            copied_input=str(copied_input.relative_to(self.work_dir))
+            if copied_input
+            else None,
+            copied_voice=str(copied_voice.relative_to(self.work_dir))
+            if copied_voice
+            else None,
             chunks={},
         )
 
