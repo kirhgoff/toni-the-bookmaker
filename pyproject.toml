@@ -2,7 +2,7 @@
 name = "toni"
 version = "0.1.0"
 description = "CLI tool to generate audiobooks from PDF/text files using TTS models"
-readme = "PLAN.md"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "click>=8.1.0",
@@ -15,6 +15,12 @@ dependencies = [
 [project.optional-dependencies]
 pocket = ["pocket-tts"]
 kani = ["kani-tts-2", "transformers>=4.50.0"]
+omni = [
+    "omnivoice>=0.2.1",
+    "torch==2.8.0",
+    "torchaudio==2.8.0",
+    "soundfile>=0.12.1",
+]
 
 [project.scripts]
 toni = "toni.cli:main"
@@ -34,5 +40,6 @@ conflicts = [
     [
         { extra = "pocket" },
         { extra = "kani" },
+        { extra = "omni" },
     ],
 ]
