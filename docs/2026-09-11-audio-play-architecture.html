@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audio-Play Mode — Architecture Report</title>
+<style>
+:root{
+  --bg:#fbfaf8; --surface:#ffffff; --surface-2:#f4f2ee; --text:#1c1a17; --muted:#5f5a52;
+  --border:#e2ddd4; --accent:#9a5b2c; --accent-soft:#f2e7dc;
+  --ok:#2f6b45; --warn:#8a5a12; --bad:#9c3434;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#14120f; --surface:#1c1a16; --surface-2:#232019; --text:#ece7de; --muted:#a39c90;
+    --border:#332e26; --accent:#d99a63; --accent-soft:#2a2119;
+    --ok:#7fbf95; --warn:#d9ab63; --bad:#e08b8b;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14120f; --surface:#1c1a16; --surface-2:#232019; --text:#ece7de; --muted:#a39c90;
+  --border:#332e26; --accent:#d99a63; --accent-soft:#2a2119;
+  --ok:#7fbf95; --warn:#d9ab63; --bad:#e08b8b;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:16px/1.65 ui-serif,Georgia,"Iowan Old Style",serif;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:56rem;margin:0 auto;padding:3rem 1.5rem 6rem}
+header{border-bottom:2px solid var(--border);padding-bottom:1.5rem;margin-bottom:2.5rem}
+.eyebrow{font:600 .75rem/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin:0 0 .75rem}
+h1{font-size:2.1rem;line-height:1.2;margin:0 0 .6rem;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0;font-size:1.05rem}
+.meta{margin-top:1.25rem;font:.85rem/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--muted)}
+h2{font-size:1.4rem;margin:3rem 0 .25rem;letter-spacing:-.005em;padding-top:.5rem}
+h2 + .lede{color:var(--muted);margin:0 0 1.25rem;font-size:.95rem}
+h3{font-size:1.08rem;margin:2rem 0 .5rem;font-family:ui-sans-serif,system-ui,sans-serif}
+p{margin:0 0 1rem}
+ul,ol{margin:0 0 1rem;padding-left:1.3rem}
+li{margin-bottom:.4rem}
+code{font-family:var(--mono);font-size:.85em;background:var(--surface-2);padding:.14em .4em;border-radius:4px;border:1px solid var(--border)}
+pre{background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:1rem;overflow-x:auto;margin:0 0 1.25rem}
+pre code{background:none;border:none;padding:0;font-size:.82rem;line-height:1.6}
+.scroll{overflow-x:auto;margin:0 0 1.5rem;border:1px solid var(--border);border-radius:8px}
+table{border-collapse:collapse;width:100%;font:.9rem/1.5 ui-sans-serif,system-ui,sans-serif;min-width:34rem}
+th,td{text-align:left;padding:.6rem .8rem;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:var(--surface-2);font-weight:600;font-size:.8rem;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
+tr:last-child td{border-bottom:none}
+.card{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:6px;padding:1.1rem 1.25rem;margin:0 0 1.5rem}
+.card p:last-child{margin-bottom:0}
+.card .label{font:600 .72rem/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);display:block;margin-bottom:.5rem}
+.card.warn{border-left-color:var(--warn)} .card.warn .label{color:var(--warn)}
+.card.bad{border-left-color:var(--bad)} .card.bad .label{color:var(--bad)}
+.card.ok{border-left-color:var(--ok)} .card.ok .label{color:var(--ok)}
+.pill{display:inline-block;font:600 .7rem/1 ui-sans-serif,system-ui,sans-serif;padding:.3em .6em;border-radius:99px;letter-spacing:.04em;text-transform:uppercase}
+.pill.ok{background:var(--accent-soft);color:var(--ok)}
+.pill.warn{background:var(--accent-soft);color:var(--warn)}
+.pill.bad{background:var(--accent-soft);color:var(--bad)}
+.flow{font-family:var(--mono);font-size:.8rem;line-height:1.9;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:1.1rem;overflow-x:auto;margin:0 0 1.5rem;white-space:pre}
+.det{color:var(--ok);font-weight:600}
+.lib{color:var(--warn);font-weight:600}
+.llm{color:var(--accent);font-weight:600}
+footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--border);font:.85rem/1.6 ui-sans-serif,system-ui,sans-serif;color:var(--muted)}
+.toc{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.1rem 1.4rem;margin:0 0 2rem;font:.9rem/1.8 ui-sans-serif,system-ui,sans-serif}
+.toc ol{margin:0;padding-left:1.2rem}
+.toc a{color:var(--text);text-decoration:none;border-bottom:1px solid var(--border)}
+.toc a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+a{color:var(--accent)}
+.quote{font-style:italic}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">Design Report · toni the bookmaker</p>
+  <h1>Audio-Play Mode</h1>
+  <p class="sub">Multi-voice audiobook rendering for English fiction: character detection, voice casting, and an honest account of how much dialogue can actually be voiced.</p>
+  <p class="meta">11 September 2026 · Target language: <strong>English</strong> · Status: <strong>proposed, nothing built</strong> · Converged over two adversarial design rounds</p>
+</header>
+
+<div class="toc">
+  <ol>
+    <li><a href="#context">Context and current state</a></li>
+    <li><a href="#method">How this design was produced</a></li>
+    <li><a href="#tooling">Tooling decision: BookNLP</a></li>
+    <li><a href="#evidence">What the accuracy numbers actually say</a></li>
+    <li><a href="#coverage">How much dialogue gets voiced</a></li>
+    <li><a href="#pipeline">The pipeline</a></li>
+    <li><a href="#interruption">The interruption problem</a></li>
+    <li><a href="#casting">Voice casting</a></li>
+    <li><a href="#composition">Composition with existing code</a></li>
+    <li><a href="#footprint">Install footprint and licensing</a></li>
+    <li><a href="#spike">Spike gates</a></li>
+    <li><a href="#cost">Cost</a></li>
+    <li><a href="#staging">Staging plan</a></li>
+    <li><a href="#scope">Out of scope and open questions</a></li>
+  </ol>
+</div>
+
+<h2 id="context">1. Context and current state</h2>
+<p class="lede">What exists today, and what this proposes to add.</p>
+
+<p><strong>toni</strong> is a CLI that turns PDFs and text files into audiobooks: extract text → chunk at sentence boundaries → synthesize each chunk through a TTS engine → concatenate with ffmpeg into an MP3. Work is resumable through a <code>manifest.json</code> tracking per-chunk status, and parallelised with a <code>multiprocessing.Pool</code> where each worker loads its own model.</p>
+
+<p>Shortly before this design, the <strong>OmniVoice</strong> engine (<code>k2-fsa/OmniVoice</code>, 0.6B params, 24&nbsp;kHz, ~RTF&nbsp;0.38 on MPS) was added as <code>--model omni</code>, and four pre-existing bugs were fixed — a sentence splitter that mis-split non-ASCII text, concurrent manifest corruption, nested retry-splits being dropped from the output, and a stale manifest cache that broke <code>--workers 2</code> entirely.</p>
+
+<p>This report designs an opt-in <strong>audio-play mode</strong>: detect characters, infer their attributes, give each a distinct voice, render dialogue in that voice and narration in a narrator voice. <strong>Target language is English only.</strong></p>
+
+<div class="card ok">
+<span class="label">Why English-only changes the design fundamentally</span>
+<p>English has mature, purpose-built tooling for exactly this problem that other languages lack — so the right move is to <em>use a library rather than build a parser</em>. English also makes OmniVoice's ten accent attributes usable (they are English-only in the model), expanding the distinct-voice space from 50 combinations to 1,000.</p>
+<p>The offsetting loss: languages with gendered past-tense verbs hand you each speaker's gender for free. English gives nothing per-utterance. That loss is recovered at the character level, not the utterance level — see §6.</p>
+</div>
+
+<h2 id="method">2. How this design was produced</h2>
+<p class="lede">Propose, attack, revise. The attack mattered.</p>
+
+<p>An architect agent produced a design; an adversarial reviewer then attacked it, verifying every load-bearing claim against the repository, the installed package, BookNLP's source and model server, and the published literature. It raised <strong>15 findings — 2 blockers, 7 serious, 6 minor</strong>. The architect accepted all 15, with one nuance.</p>
+
+<div class="card bad">
+<span class="label">The blocker worth understanding</span>
+<p>Round 1 justified the whole approach with the claim that BookNLP is <em>"near-perfect on explicit quotes."</em> That is <strong>false for the version you can install</strong>. The ~98% figure belongs to systems <strong>retrained on PDNC with SpanBERT-large</strong> — research artifacts, not packages. The pip-installable model, whose weights are dated November 2021, scores <strong>64% on explicit quotes</strong>.</p>
+<p>Had this gone unchecked, the design would have trusted a component that misattributes roughly <strong>one in three</strong> tagged quotes — producing exactly the failure this architecture treats as unacceptable: a confident, wrong character voice.</p>
+</div>
+
+<p>The second blocker was an omission rather than an error: the design never stated <em>what fraction of dialogue actually gets a character voice</em>. That number decides whether this is an audio play or an audiobook with occasional funny voices, and it is now §5.</p>
+
+<h2 id="tooling">3. Tooling decision: BookNLP, but only for part of the job</h2>
+<p class="lede">Use the library where it is strong; refuse it where it is weak.</p>
+
+<p><strong>BookNLP</strong> (UC Berkeley, MIT-licensed code) is purpose-built for literary text: quote detection, character name clustering, coreference, and referential gender inference. Writing an English quote segmenter, alias clusterer and coref system by hand would be roughly 1,500 lines of subtle code that ends up <em>worse</em> than a model trained on annotated fiction.</p>
+
+<p>But the revised design <strong>discards BookNLP's speaker-attribution output entirely</strong> and uses only its inputs:</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Job</th><th>Who does it</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Quote span detection</td><td>BookNLP</td><td>Handles straight/curly/single quotes and dominant-symbol detection per book</td></tr>
+<tr><td>Character clustering &amp; aliases</td><td>BookNLP</td><td><code>Mr. Darcy</code>/<code>Darcy</code>/<code>Fitzwilliam</code> → one entity. String matching would not suffice</td></tr>
+<tr><td>Character gender</td><td>BookNLP</td><td>Aggregates thousands of pronoun-coref links per character — statistically strong</td></tr>
+<tr><td><strong>Speaker attribution</strong></td><td><strong>Our code, deterministic</strong></td><td><strong>BookNLP scores 42% here. Not usable.</strong></td></tr>
+<tr><td>Character age / pitch / accent</td><td>LLM (one call, optional)</td><td>No library provides this; it is cheap and quality-critical</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Attribution is re-derived in about 150 lines of stdlib: a quote is attributed only when the same sentence contains <code>speech-verb + proper-name mention</code> in either order, resolved through BookNLP's token and entity offsets rather than raw regex over text.</p>
+
+<div class="card warn">
+<span class="label">Hard constraint that shapes the architecture</span>
+<p>BookNLP is transformers-4.x-era code; <code>omnivoice 0.2.1</code> requires <code>transformers&gt;=5.3.0</code>. <strong>They cannot share a virtualenv.</strong> BookNLP therefore runs in a pinned side environment invoked by subprocess — which conveniently also keeps it off toni's default dependency path. Its <code>tokenizers</code> pin has no cp312 wheels, so that side environment is locked to Python ≤ 3.11 and uv must provision a second interpreter.</p>
+</div>
+
+<h2 id="evidence">4. What the accuracy numbers actually say</h2>
+<p class="lede">Separating what you can install from what was published.</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>System</th><th>Overall</th><th>Explicit</th><th>Anaphoric / implicit</th><th>Installable?</th></tr></thead>
+<tbody>
+<tr><td><strong>Stock BookNLP (pip, Nov-2021 weights)</strong></td><td><strong>42%</strong></td><td><strong>64%</strong></td><td><strong>~28%</strong></td><td><span class="pill ok">Yes</span></td></tr>
+<tr><td>BookNLP+ / retrained SpanBERT-large</td><td>78.5%</td><td>98.6%</td><td>—</td><td><span class="pill bad">No</span></td></tr>
+<tr><td>ModernBookNLP (Aug 2026)</td><td>94.5%*</td><td>—</td><td>—</td><td><span class="pill warn">Unclear</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<p style="font-size:.85rem;color:var(--muted)">* with <strong>gold quotation spans and gold character lists</strong>, on major/intermediate characters, benchmarked on A100s. The repository currently has two commits and no visible license. This is an upgrade path to evaluate, not a foundation to build on — and "no license" means "unusable" until that changes.</p>
+
+<p>The three quote classes are roughly equal thirds of real dialogue: <strong>explicit ~33%, anaphoric ~29%, implicit ~37%</strong>. Stock BookNLP is weakest precisely where two-thirds of the dialogue lives.</p>
+
+<h2 id="coverage">5. How much dialogue actually gets voiced</h2>
+<p class="lede">The number the first design never computed. It decides whether this feature is worth building.</p>
+
+<p>Three attribution sources are in scope, all deterministic and all high-precision by construction:</p>
+<ul>
+<li><strong>Explicit tags</strong> — <span class="quote">"…," said Mary</span>. The reliable core.</li>
+<li><strong>Multi-paragraph continuation</strong> — an unclosed quote followed by a paragraph opening with a quote continues the same speaker. <em>Gated to double-quote-dominant books only</em> (see below).</li>
+<li><strong>Two-party alternation</strong> — where explicit tags establish exactly two speakers in a run and no third named mention intervenes, untagged quotes alternate. This is how a human reads Hemingway, and it attacks the implicit class exactly where it concentrates.</li>
+</ul>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Book type</th><th>Explicit tags only</th><th>+ continuation + alternation</th></tr></thead>
+<tbody>
+<tr><td>Tag-heavy (children's, much YA)</td><td>60–85%</td><td><strong>80–95%</strong></td></tr>
+<tr><td>Classic ensemble (Austen, Dickens)</td><td>25–45%</td><td><strong>50–75%</strong></td></tr>
+<tr><td>Sparse-tag two-party modern (Hemingway-like)</td><td>10–25%</td><td><strong>50–80%</strong></td></tr>
+<tr><td>No quote marks (McCarthy, Saramago)</td><td>~0%</td><td>~0% — play mode refuses</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>These are estimates to be replaced by spike measurements. Without alternation, the left column is the product — and for an Austen novel that means <strong>two-thirds of dialogue read by the narrator</strong>.</p>
+
+<div class="card bad">
+<span class="label">Inconsistency is its own defect</span>
+<p>A low but <em>erratic</em> voicing rate may be worse than none: the same character flipping between their own voice and the narrator line-by-line within one scene is more jarring than a straight narrator read. The design treats this as a defect class and applies a <strong>scene-level all-or-nothing rule</strong> — if fewer than half of a character's quotes in a dialogue run are attributed, the whole run is demoted to narrator.</p>
+</div>
+
+<p><code>--prep-only</code> prints per-book coverage (percentage voiced, per-character breakdown, demoted runs) and <strong>recommends against play mode below a floor</strong> (default 40%). Whether a given book is worth rendering as an audio play becomes a measured, printed number — decided before any audio is generated.</p>
+
+<h2 id="pipeline">6. The pipeline</h2>
+
+<div class="flow"><span class="det">extract</span> → <span class="det">book classifier</span> → <span class="lib">BookNLP (subprocess, isolated env)</span>
+   → <span class="det">deterministic attribution + continuation + alternation</span>
+   → <span class="det">consistency demotion + same-voice merge + typed pauses</span>
+   → <span class="llm">[casting call: age/pitch/accent]</span> → <span class="det">capture voices (.pt)</span>
+   → existing Pool → existing ffmpeg concat
+
+<span class="det">green = deterministic, 0 tokens</span>  <span class="lib">amber = library</span>  <span class="llm">orange = LLM</span></div>
+
+<p>Prep runs once and writes artifacts to <code>work/&lt;stem&gt;.play/</code> — a <em>separate directory</em> from simple mode, so a plain run and a play run of the same book cannot collide. (Work dirs are keyed by output stem only; without this, a play-mode prep followed by a plain run would silently resume the play manifest and emit a mangled hybrid.) Resume reads the artifacts and never re-runs BookNLP or the LLM.</p>
+
+<h3>The book classifier</h3>
+<p>A one-page preflight that prints what play mode can and cannot do for <em>this</em> book, rather than silently degrading: quote-mark density and dominant symbol, first-person detection, named-character density. Books without quote marks are refused with an explanation.</p>
+
+<h3>Where gender comes from</h3>
+<p>Not from verbs — English has none to offer. From BookNLP's <strong>book-level referential gender</strong>: thousands of aggregated pronoun-coref links per character, cross-checked against a twenty-entry honorific table (Mr./Mrs./Miss/Sir/Lady/Lord). This uses coreference where it is statistically strong (aggregate) rather than where it is weak (resolving a single <span class="quote">he said</span> — that branch was cut for exactly this reason).</p>
+
+<h3>Non-speech quote filter</h3>
+<p>English introduces a false-positive class that dash-based conventions don't have: scare quotes, quoted titles, <span class="quote">he called it a "disaster"</span>. A span shorter than five tokens, mid-sentence, with no speech verb in its sentence, is demoted to narration.</p>
+
+<div class="card warn">
+<span class="label">Single-quote British editions</span>
+<p>Where <code>'</code> is both quote mark and apostrophe, <code>boys'</code>, <code>'tis</code>, <code>'em</code> and <code>goin'</code> corrupt open/close tracking. This matters most for the continuation rule, which keys on "unclosed final quote" — a miscount turns a narrator fallback into a <em>false speaker-continuation chain</em>, i.e. a wrong-voice error. Continuation is therefore enabled only for double-quote-dominant books in v1.</p>
+</div>
+
+<h2 id="interruption">7. The interruption problem</h2>
+<p class="lede">The most common dialogue shape in English fiction, and the design's biggest unresolved risk.</p>
+
+<pre><code>"I think," he said, "that we should go."</code></pre>
+
+<p>Naively this becomes three chunks and two voice switches. Because each fragment is synthesized independently, <span class="quote">"I think,"</span> receives sentence-final falling intonation and <span class="quote">"that we should go"</span> cold-starts a new sentence. Austen and Dickens produce thousands of these per novel.</p>
+
+<p>Two treatments go to a listening test <em>before</em> the pipeline is built:</p>
+<ul>
+<li><strong>T1</strong> — three segments with 0&nbsp;ms pauses and minimized pad/fade.</li>
+<li><strong>T2</strong> — merge the quote halves into one character-voiced generation and move the tag after it: <span class="quote">"I think, that we should go," — he said</span>. Semantically identical, prosodically continuous, and standard audiobook practice. It also cuts chunk count, which doubles as the render-cost mitigation.</li>
+</ul>
+
+<div class="card bad">
+<span class="label">If both fail</span>
+<p>Voiced dialogue would be restricted to uninterrupted quotes, and the coverage table in §5 drops accordingly. That would be a real ceiling on the feature, and it is stated as one rather than discovered later. This is why the listening test is gate S6 and happens in stage 0.</p>
+</div>
+
+<h2 id="casting">8. Voice casting</h2>
+<p class="lede">Design once, freeze, clone forever.</p>
+
+<p>OmniVoice's voice design samples a <em>random</em> voice matching the requested attributes on every call, with no seed parameter — useless across a worker pool, where every process would invent a different Elizabeth Bennet. So each voice is designed <strong>once</strong>, rendered to a short calibration clip, and frozen as a serialized <code>VoiceClonePrompt</code> (<code>.pt</code>). All rendering clones from that file: stable across processes, runs and machines, and measurably faster per chunk (2.65s → 1.34s).</p>
+
+<p>A useful consequence: a per-character voice is just <em>a file path</em>, so it rides the existing <code>generate(text, voice_sample: Path)</code> signature. <strong>The <code>TTSEngine</code> ABC never changes and <code>pocket</code>/<code>kani</code> never learn this feature exists.</strong></p>
+
+<div class="card">
+<span class="label">Pass the reference text</span>
+<p>When building calibration prompts, supply <code>ref_text=</code> — we wrote the calibration sentence, so we know it. Omitting it makes OmniVoice load Whisper large-v3-turbo (~1.6&nbsp;GB) to transcribe audio we generated ourselves.</p>
+</div>
+
+<h3>The attribute space</h3>
+<p>Gender (2) × age (5) × pitch (5) × accent (10 + none) = <strong>550 cells</strong>, with categories mutually exclusive. Enforcing unique (gender, age, pitch) tuples alone gives 50 cells — ample for any sane cast. Assignment is greedy by quote count, maximizing distance in attribute space, so major characters get maximally separated voices.</p>
+
+<p><strong>Accents are used conservatively.</strong> The casting call infers the book's home accent (British for Austen, American for Steinbeck) and applies it to narrator and cast by default; a character deviates only on textual evidence. A randomly-assigned Japanese-accented Mr. Collins is a worse defect than two slightly similar voices.</p>
+
+<h2 id="composition">9. Composition with existing code</h2>
+
+<div class="scroll">
+<table>
+<thead><tr><th>File</th><th>Change</th><th>Default-path impact</th></tr></thead>
+<tbody>
+<tr><td><code>tts/omni.py</code></td><td><code>.pt</code> loading in <code>_voice_prompt</code>; pad/fade overrides</td><td>None</td></tr>
+<tr><td><code>work_manager.py</code></td><td>Additive <code>mode</code> + per-chunk <code>voice</code>/<code>pause_after</code>; <code>add_sub_chunk</code> copies them; resume mode guard</td><td>One new field, one guard</td></tr>
+<tr><td><code>audio_encoder.py</code></td><td>Optional <code>pause_types</code> list; <code>None</code> → today's single-silence behavior</td><td>None</td></tr>
+<tr><td><code>cli.py</code></td><td><code>--play</code>, <code>--prep-only</code>, <code>--recast</code>; segment-based chunking; per-chunk voice resolution falling back to the global</td><td><strong>Shared path, gated</strong></td></tr>
+<tr><td><code>tts/base.py</code>, <code>chunker.py</code>, registry</td><td><strong>No changes</strong></td><td>—</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Play mode is omni-only; <code>--play</code> with <code>pocket</code> or <code>kani</code> exits with a clear error, since cloning-from-prompt is the mechanism everything rests on.</p>
+
+<h3>Render cost</h3>
+<p>Simple mode packs 300-character chunks; play segments are 40–150 character dialogue lines, plus interruption splits — <strong>2–4× the chunk count</strong>. Per-generation cost with clone reuse is ~1.34s <em>fixed, regardless of text length</em>, so fixed overhead times chunk count dominates. Honest estimate: <strong>1.5–3× simple mode</strong>, measured in stage 0 rather than asserted. A same-voice merge (combining adjacent segments sharing a voice) is the main defense; T2 interruption merging is the second.</p>
+
+<h2 id="footprint">10. Install footprint and licensing</h2>
+
+<div class="card warn">
+<span class="label">The honest claim</span>
+<p><strong>The default install and default command path are unchanged.</strong> "Zero new dependencies" is not accurate: <code>--play</code> adds the <code>play</code> extra and provisions a <strong>~2–3&nbsp;GB</strong> side environment (second Python ≤3.11, torch-CPU, transformers ~4.30, spaCy model) plus <strong>~1.1&nbsp;GB</strong> of BookNLP model weights.</p>
+</div>
+
+<p><strong>Model hosting is a single point of failure.</strong> Weights download from a personal faculty homepage over plain HTTP, with no checksums, no mirror, and no modification since November 2021. Mitigation: download once, verify against SHA256 hashes pinned in our repo, cache locally. <strong>No vendoring or mirroring until licensing is clarified</strong> — the MIT license covers the code repository; the weights' license is unstated and their redistributability is unverified.</p>
+
+<p>Prep runtime is <em>unmeasured</em>. BERT-base coreference over 100k words on CPU is plausibly 20–60 minutes, one-time per book. No figure is quoted until the spike produces one.</p>
+
+<h2 id="spike">11. Spike gates</h2>
+<p class="lede">One combined spike precedes all feature work. Thresholds are fixed now, before any measurement — so the result cannot be rationalized after the fact.</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Gate</th><th>Measurement</th><th>Threshold</th></tr></thead>
+<tbody>
+<tr><td><strong>S1</strong> install</td><td>Pinned BookNLP env builds and runs a full novel on this Mac</td><td>1-day timebox. Fail → fallback backend (own regex segmenter + explicit tags, LLM does clustering)</td></tr>
+<tr><td><strong>S2</strong> runtime</td><td>Wall-clock prep on a 100k-word novel</td><td>&gt;90 min acceptable (one-time); &gt;4h → investigate or fall back</td></tr>
+<tr><td><strong>S3</strong> attribution precision</td><td>Our deterministic attribution vs <strong>PDNC gold labels</strong>, 3 novels of differing style</td><td><strong>≥97% precision required.</strong> 90–97% → tighten and re-measure. &lt;90% → deterministic attribution is dead</td></tr>
+<tr><td><strong>S4</strong> alternation precision</td><td>Same gold data, two-party runs only</td><td>≥95% → ship. Else drop alternation and re-decide viability on coverage</td></tr>
+<tr><td><strong>S5</strong> coverage</td><td>% quotes voiced on 3 PDNC novels + 1 real target book</td><td>&lt;40% on books the user actually wants → stage 1 is not worth listening to</td></tr>
+<tr><td><strong>S6</strong> interruption prosody</td><td>Listening test: T1 vs T2 vs naive on 20 real interruptions; plus flip-flop vs all-narrator A/B</td><td>By ear. Both fail → restrict to uninterrupted quotes, state the ceiling</td></tr>
+<tr><td><strong>S7</strong> render cost</td><td>One dialogue-heavy chapter, play vs simple, 4 workers</td><td>Expect 1.5–3×. &gt;3× → mandatory T2 merging; &gt;4× → rescope</td></tr>
+<tr><td><strong>S8</strong> ModernBookNLP</td><td>Installs/runs on MPS or CPU; precision <strong>under our real spans and cast</strong>, not gold inputs; license check</td><td>Passes on all three → adopt, and <strong>stage 3 is cut before it is built</strong></td></tr>
+<tr><td><strong>S9</strong> voice grid</td><td>Audition 12 calibration clips; does clone-of-clone preserve designed age/pitch?</td><td>Indistinguishable neighbors → drop same-cell seeds</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="cost">12. Cost</h2>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Pass</th><th>Cost per 100k-word novel</th></tr></thead>
+<tbody>
+<tr><td><strong>Stage 1 — no LLM at all</strong></td><td><strong>$0.00</strong></td></tr>
+<tr><td>Casting call (one request)</td><td>$0.03 – $0.10</td></tr>
+<tr><td>Optional attribution refinement, cheap model, batched</td><td>$0.04 – $0.17</td></tr>
+<tr><td>Optional refinement, mid-tier model with adaptive thinking</td><td>$0.25 – $1.50 <em>(upper bound genuinely unpredictable)</em></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The "minimize tokens" requirement is met <strong>structurally</strong> — a library does the bulk and the LLM sees at most a fraction of the book, once — rather than by prompt golf. Two caveats: batch discount and prompt caching are <em>alternatives</em>, not stackable, and caching buys little here because book text is sent once rather than repeatedly; and adaptive-thinking tokens bill as output, which is what makes the mid-tier upper bound unpredictable. Attribution from a provided scene is not deep reasoning — use a low effort setting or a cheaper model.</p>
+
+<h2 id="staging">13. Staging plan</h2>
+
+<h3>Stage 0 — Spike and plumbing</h3>
+<p>Gates S1–S9. Ships regardless of their outcome: typed pauses, pad/fade overrides, <code>.pt</code> support, resume mode guard, separate play work-dir keying. Independently useful — the resume guard fixes a latent hazard in simple mode today.</p>
+
+<h3>Stage 1 — Voiced audiobook <span class="pill ok">$0 LLM</span></h3>
+<p>Deterministic explicit attribution, gated continuation, alternation (if S4 passes), consistency demotion, deterministic casting, coverage report with floor.</p>
+<p><strong>Honest framing:</strong> for tag-heavy and two-party books this genuinely is an audio play. For ensemble classics it is an audiobook where a majority of dialogue is voiced. Below the floor, prep tells the user not to bother. "Worth listening to" is a per-book measured claim printed by prep, not a marketing line.</p>
+<p><em>What would have to be true for stage 1 to be universally worth listening to:</em> anaphoric and implicit attribution at ≥95% precision — which only S8 or stage 3 can supply.</p>
+
+<h3>Stage 2 — LLM casting call</h3>
+<p>Ages, accents, first-person narrator gender. Plus wheel-install packaging.</p>
+
+<h3>Stage 3 — Conditional</h3>
+<p>LLM attribution refinement for anaphoric/implicit quotes, <strong>built only if S8 rejected ModernBookNLP</strong>. Killed unbuilt if S8 passed — which is the point of evaluating it first.</p>
+
+<h2 id="scope">14. Out of scope and open questions</h2>
+
+<div class="card bad">
+<span class="label">Book classes this cannot serve</span>
+<ul style="margin-bottom:0">
+<li><strong>No quote marks</strong> (McCarthy, Saramago, <em>Ulysses</em>) — zero quotes detected. Play mode refuses rather than silently producing a plain audiobook and reporting success.</li>
+<li><strong>Unnamed major characters</strong> ("the man", "the boy" in <em>The Road</em>; the narrator of <em>Rebecca</em>) — the cast requires proper names, so these are never voiced at any stage.</li>
+<li><strong>First-person narrators</strong> — no third-person pronouns coref to the narrator, so referential gender is empty for the protagonist. Policy: protagonist speech renders in the narrator voice, which is the correct audiobook convention. This is now a deliberate decision rather than an accident of the filter.</li>
+</ul>
+</div>
+
+<h3>Open decisions</h3>
+<ol>
+<li><strong>Is a 50–75% voiced rate acceptable for the books you care about?</strong> If your library is Austen-shaped, that is the realistic stage-1 outcome. If it is dialogue-heavy modern fiction, alternation pushes it higher. This is the question the whole feature turns on, and it is worth answering before stage 0.</li>
+<li><strong>Interruption handling.</strong> T2 reorders speech and tag. It is standard practice and prosodically better, but it does change the audio's word order relative to the page.</li>
+<li><strong>Risk appetite for BookNLP.</strong> Dormant since 2024, weights from 2021 on a faculty homepage with an unstated license. The fallback backend exists, but it is meaningfully worse.</li>
+</ol>
+
+<footer>
+<p><strong>Status:</strong> design only — no implementation exists. Produced by a two-round adversarial design process, 11 September 2026.</p>
+<p>Accuracy figures: Comeau et al. 2023 (<a href="https://arxiv.org/html/2307.03734">arXiv:2307.03734</a>) for stock BookNLP; Michel et al. 2024 (<a href="https://arxiv.org/pdf/2406.11368">arXiv:2406.11368</a>) for retrained systems; <a href="https://arxiv.org/abs/2608.02359">arXiv:2608.02359</a> for ModernBookNLP; <a href="https://arxiv.org/pdf/2204.05836">arXiv:2204.05836</a> for the PDNC corpus and quote-type distribution. Codebase claims verified against <code>src/toni/</code> and the installed <code>omnivoice</code> package as of this date.</p>
+</footer>
+
+</div>
+</body>
+</html>
