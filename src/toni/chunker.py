@@ -136,7 +136,7 @@ def split_into_sentences(text: str) -> list[str]:
 
     Handles common abbreviations and edge cases.
     """
-    sentence_pattern = r"(?<=[.!?])\s+(?=[A-Z])"
+    sentence_pattern = r"(?<=[.!?…])\s+(?=[\"«\'(\u2014-]?[^\W\d_a-zа-яё])"
     sentences = re.split(sentence_pattern, text)
     return [s.strip() for s in sentences if s.strip()]
 

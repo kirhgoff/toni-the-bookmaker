@@ -37,6 +37,10 @@ def get_engine(name: str) -> TTSEngine:
         from toni.tts.kani import KaniTTSEngine
 
         return KaniTTSEngine()
+    elif name == "omni":
+        from toni.tts.omni import OmniVoiceEngine
+
+        return OmniVoiceEngine()
     else:
         available = list_engines()
         raise ValueError(
@@ -46,4 +50,4 @@ def get_engine(name: str) -> TTSEngine:
 
 def list_engines() -> list[str]:
     """List all available TTS engine names."""
-    return ["pocket", "kani"]
+    return ["pocket", "kani", "omni"]

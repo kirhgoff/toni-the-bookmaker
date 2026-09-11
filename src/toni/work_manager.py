@@ -1,6 +1,9 @@
 """Work directory and manifest management for resumable processing."""
 
+import fcntl
 import json
+import os
+from contextlib import contextmanager
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -62,6 +65,11 @@ class Manifest:
             copied_voice=data.get("copied_voice"),
             chunks=data.get("chunks", {}),
         )
+
+
+def _chunk_sort_key(chunk_id: str) -> tuple:
+    parts = chunk_id.replace("_", ".").split(".")
+    return tuple(int(p) if p.isdigit() else ord(p[0]) if p else 0 for p in parts)
 
 
 class WorkManager:
@@ -127,10 +135,11 @@ class WorkManager:
         return self.manifest_path.exists()
 
     def load_manifest(self) -> Manifest:
-        """Load manifest from disk or create new one."""
-        if self._manifest is not None:
-            return self._manifest
+        """Load manifest from disk or create new one.
 
+        Always re-reads: worker processes write this file concurrently, so a
+        cached copy in the parent goes stale the moment a worker finishes.
+        """
         if self.manifest_path.exists():
             with open(self.manifest_path, "r") as f:
                 data = json.load(f)
@@ -145,8 +154,27 @@ class WorkManager:
         if self._manifest is None:
             return
 
-        with open(self.manifest_path, "w") as f:
+        tmp_path = self.manifest_path.with_suffix(".json.tmp")
+        with open(tmp_path, "w") as f:
             json.dump(self._manifest.to_dict(), f, indent=2)
+        os.replace(tmp_path, self.manifest_path)
+
+    @contextmanager
+    def _locked_manifest(self):
+        """Hold an exclusive lock across a manifest read-modify-write.
+
+        Worker processes share one manifest file; without this, concurrent
+        read-modify-write cycles silently drop each other's chunk statuses.
+        """
+        lock_path = self.work_dir / "manifest.lock"
+        with open(lock_path, "w") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            self._manifest = None
+            try:
+                yield self.load_manifest()
+            finally:
+                self._manifest = None
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
 
     def copy_input_file(self, source: Path) -> Path:
         """Copy input file to work directory.
@@ -259,35 +287,34 @@ class WorkManager:
         sub_chunks: list[str] | None = None,
     ) -> None:
         """Update chunk status."""
-        manifest = self.load_manifest()
+        with self._locked_manifest() as manifest:
+            if str(chunk_id) not in manifest.chunks:
+                manifest.chunks[str(chunk_id)] = {}
 
-        if str(chunk_id) not in manifest.chunks:
-            manifest.chunks[str(chunk_id)] = {}
+            chunk_data = manifest.chunks[str(chunk_id)]
+            chunk_data["status"] = status
 
-        chunk_data = manifest.chunks[str(chunk_id)]
-        chunk_data["status"] = status
+            if error is not None:
+                chunk_data["error"] = error
+            elif "error" in chunk_data and status == "completed":
+                del chunk_data["error"]
 
-        if error is not None:
-            chunk_data["error"] = error
-        elif "error" in chunk_data and status == "completed":
-            del chunk_data["error"]
+            if sub_chunks is not None:
+                chunk_data["sub_chunks"] = sub_chunks
 
-        if sub_chunks is not None:
-            chunk_data["sub_chunks"] = sub_chunks
+            if status == "failed":
+                chunk_data["retries"] = chunk_data.get("retries", 0) + 1
 
-        if status == "failed":
-            chunk_data["retries"] = chunk_data.get("retries", 0) + 1
-
-        self.save_manifest()
+            self.save_manifest()
 
     def increment_retries(self, chunk_id: str) -> int:
         """Increment retry count for a chunk and return new count."""
-        manifest = self.load_manifest()
-        chunk_data = manifest.chunks.get(str(chunk_id), {})
-        retries = chunk_data.get("retries", 0) + 1
-        chunk_data["retries"] = retries
-        manifest.chunks[str(chunk_id)] = chunk_data
-        self.save_manifest()
+        with self._locked_manifest() as manifest:
+            chunk_data = manifest.chunks.get(str(chunk_id), {})
+            retries = chunk_data.get("retries", 0) + 1
+            chunk_data["retries"] = retries
+            manifest.chunks[str(chunk_id)] = chunk_data
+            self.save_manifest()
         return retries
 
     def get_retries(self, chunk_id: str) -> int:
@@ -334,52 +361,44 @@ class WorkManager:
 
     def add_sub_chunk(self, parent_id: str, sub_id: str, text: str) -> None:
         """Add a sub-chunk created from splitting a failed chunk."""
-        manifest = self.load_manifest()
-
-        parent_data = manifest.chunks.get(str(parent_id), {})
-        sub_chunks = parent_data.get("sub_chunks", [])
-        if sub_id not in sub_chunks:
-            sub_chunks.append(sub_id)
-        parent_data["sub_chunks"] = sub_chunks
-        parent_data["status"] = "split"
-        manifest.chunks[str(parent_id)] = parent_data
-
-        manifest.chunks[sub_id] = {"status": "pending", "parent": str(parent_id)}
-
         self.save_chunk_text(sub_id, text)
-        self.save_manifest()
+
+        with self._locked_manifest() as manifest:
+            parent_data = manifest.chunks.get(str(parent_id), {})
+            sub_chunks = parent_data.get("sub_chunks", [])
+            if sub_id not in sub_chunks:
+                sub_chunks.append(sub_id)
+            parent_data["sub_chunks"] = sub_chunks
+            parent_data["status"] = "split"
+            manifest.chunks[str(parent_id)] = parent_data
+
+            manifest.chunks[sub_id] = {"status": "pending", "parent": str(parent_id)}
+
+            self.save_manifest()
 
     def get_all_audio_chunks_ordered(self) -> list[str]:
         """Get all chunk IDs that have audio, in correct order for concatenation."""
         manifest = self.load_manifest()
         result = []
 
-        def sort_key(chunk_id: str) -> tuple:
-            parts = chunk_id.replace("_", ".").split(".")
-            return tuple(
-                int(p) if p.isdigit() else ord(p[0]) if p else 0 for p in parts
-            )
-
         for i in range(manifest.total_chunks):
-            chunk_id = str(i)
-            chunk_data = manifest.chunks.get(chunk_id, {})
-            status = chunk_data.get("status", "pending")
-
-            if status == "completed":
-                audio_path = self.get_chunk_audio_path(chunk_id)
-                if audio_path.exists():
-                    result.append(chunk_id)
-            elif status == "split":
-                sub_chunks = chunk_data.get("sub_chunks", [])
-                sorted_subs = sorted(sub_chunks, key=sort_key)
-                for sub_id in sorted_subs:
-                    sub_data = manifest.chunks.get(sub_id, {})
-                    if sub_data.get("status") == "completed":
-                        audio_path = self.get_chunk_audio_path(sub_id)
-                        if audio_path.exists():
-                            result.append(sub_id)
+            self._collect_audio_chunks(manifest, str(i), result)
 
         return result
+
+    def _collect_audio_chunks(
+        self, manifest: Manifest, chunk_id: str, result: list[str]
+    ) -> None:
+        """Append chunk_id's audio, descending into sub-chunks of any depth."""
+        chunk_data = manifest.chunks.get(chunk_id, {})
+        status = chunk_data.get("status", "pending")
+
+        if status == "completed":
+            if self.get_chunk_audio_path(chunk_id).exists():
+                result.append(chunk_id)
+        elif status == "split":
+            for sub_id in sorted(chunk_data.get("sub_chunks", []), key=_chunk_sort_key):
+                self._collect_audio_chunks(manifest, sub_id, result)
 
     def get_progress_summary(self) -> dict:
         """Get summary of processing progress."""
