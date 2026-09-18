@@ -1,9 +1,12 @@
+import { basename } from "node:path";
+
 import { gpuArgsOf, resolveHost, runtimeOf } from "./hosts.ts";
 import { log, runOrThrow, shellQuote } from "./shell.ts";
 
 export interface RenderOptions {
   projectDir: string;
-  out: string;
+  bookDir: string;
+  runDir: string;
   name: string;
   format: string;
   bitrate: string;
@@ -15,14 +18,14 @@ export interface RenderOptions {
   refText?: string;
 }
 
-function cliArgs(o: RenderOptions, inDir: string): string[] {
+function cliArgs(o: RenderOptions, inDir: string, outDir: string): string[] {
   const args = [
     "-i", `${inDir}/source.txt`,
-    "-o", `${inDir}/${o.name}.${o.format}`,
+    "-o", `${outDir}/${o.name}.${o.format}`,
     "-m", o.model,
     "--bitrate", o.bitrate,
     "--workers", String(o.workers),
-    "--work-dir", `${inDir}/work`,
+    "--work-dir", `${outDir}/work`,
   ];
   if (o.voiceRef) args.push("-v", `${inDir}/voice_ref.wav`);
   if (o.chapterPattern) args.push("--chapter-pattern", o.chapterPattern);
@@ -39,7 +42,7 @@ export async function renderLocal(o: RenderOptions): Promise<void> {
 
   const proc = Bun.spawn(
     ["uv", "run", "--project", o.projectDir, "--extra", o.model,
-     "python", "-m", "toni.cli", ...cliArgs(o, o.out)],
+     "python", "-m", "toni.cli", ...cliArgs(o, o.bookDir, o.runDir)],
     { env, stdout: "inherit", stderr: "inherit" },
   );
   const code = await proc.exited;
@@ -69,7 +72,7 @@ export async function renderRemote(hostName: string, o: RenderOptions): Promise<
   if (homeCode !== 0 || !remoteHome.startsWith("/")) {
     throw new Error(`could not resolve remote home on ${hostName} (got "${remoteHome}")`);
   }
-  const jobDir = `${remoteHome}/${host.workdir}/${o.name}`;
+  const jobDir = `${remoteHome}/${host.workdir}/${o.name}/${basename(o.runDir)}`;
 
   const rsync = (from: string, to: string) => {
     const cmd = ["rsync", "-a", "--partial", "--inplace", "-e", sshCmd];
@@ -81,7 +84,7 @@ export async function renderRemote(hostName: string, o: RenderOptions): Promise<
 
   log("  uploading inputs");
   await remoteSh(`mkdir -p ${shellQuote(jobDir)}`);
-  await rsync(`${o.out}/source.txt`, `${host.ssh}:${jobDir}/source.txt`);
+  await rsync(`${o.bookDir}/source.txt`, `${host.ssh}:${jobDir}/source.txt`);
   if (o.voiceRef) await rsync(o.voiceRef, `${host.ssh}:${jobDir}/voice_ref.wav`);
 
   const envExports = Object.entries(host.env ?? {})
@@ -105,12 +108,12 @@ export async function renderRemote(hostName: string, o: RenderOptions): Promise<
     `trap '${runtime} rm -f "$CONTAINER" >/dev/null 2>&1' EXIT INT TERM HUP`,
     `${runtime} run --rm --name "$CONTAINER" ${gpuArgs} -v "$WORKDIR:/books" ` +
       `-v toni-models:/models ${dockerEnv} ` +
-      `${image} ${cliArgs(o, "/books").map(shellQuote).join(" ")}`,
+      `${image} ${cliArgs(o, "/books", "/books").map(shellQuote).join(" ")}`,
   ].filter(Boolean).join("\n");
 
   // Ship the script as a file rather than on stdin: commands inside it
   // (docker, ollama) read stdin themselves and would swallow the remainder.
-  const scriptPath = `${o.out}/.render.sh`;
+  const scriptPath = `${o.runDir}/.render.sh`;
   await Bun.write(scriptPath, `${script}\n`);
   await rsync(scriptPath, `${host.ssh}:${jobDir}/run.sh`);
 
@@ -124,5 +127,5 @@ export async function renderRemote(hostName: string, o: RenderOptions): Promise<
   if (code !== 0) throw new Error(`remote render failed (exit ${code})`);
 
   log("  downloading result");
-  await rsync(`${host.ssh}:${jobDir}/${o.name}.${o.format}`, `${o.out}/${o.name}.${o.format}`);
+  await rsync(`${host.ssh}:${jobDir}/${o.name}.${o.format}`, `${o.runDir}/${o.name}.${o.format}`);
 }

@@ -43,25 +43,29 @@ narrator. `-d` runs the job in the background so it survives closing the
 terminal or your Mac going to sleep — worth using, because a full novel takes
 several hours.
 
-Everything shows up in `~/Downloads/audiobooks/book/`:
+Everything shows up in `~/Downloads/audiobooks/book/`. The book folder holds
+the shared inputs; each render gets its own run folder, named by timestamp plus a
+tag that says what the run was about (`-t`, or by default the engine and where it ran):
 
 ```
-book.m4b       the finished audiobook, with chapters
-source.txt     the cleaned text that was actually read
-voice_ref.wav  the trimmed voice sample
-voice_ref.txt  its transcript
-render.log     progress and any errors
-work/          intermediate audio chunks (safe to delete once you're happy)
+source.txt                   the cleaned text that was actually read
+voice_ref.wav                 the trimmed voice sample
+voice_ref.txt                 its transcript
+2026-01-15-1430-omni-local/   one run
+  book.m4b                 the finished audiobook, with chapters
+  render.log               progress and any errors
+  work/                     intermediate audio chunks (safe to delete once you're happy)
 ```
 
 **Check progress** while it runs:
 
 ```bash
-tail -f ~/Downloads/audiobooks/book/render.log
+tail -f ~/Downloads/audiobooks/book/2026-01-15-1430-omni-local/render.log
 ```
 
-**If it gets interrupted**, just run the exact same command again — it picks
-up where it left off instead of starting over.
+**If it gets interrupted**, just run the exact same command again. If the
+latest run folder with the same tag hasn't finished, it resumes there instead of starting over;
+if the latest run already finished, a fresh run folder is created instead.
 
 **How long it takes:** roughly 6 hours for a full-length novel on a Mac
 (Apple Silicon), or about 2 hours if rendered on a remote GPU (see
@@ -108,6 +112,7 @@ stress-marked.
 | `-i, --input` | required | Source `.txt` or `.pdf` |
 | `-v, --voice` | none | Voice sample to clone |
 | `-n, --name` | input filename | Output folder name |
+| `-t, --tag` | engine and host | Suffix for the run folder, e.g. `-t first-try` |
 | `-o, --output-dir` | `~/Downloads/audiobooks` | Folder that holds all your books |
 | `-w, --workers` | 2 | Parallel narration processes — don't raise this much, see [Troubleshooting](#troubleshooting) |
 | `-b, --bitrate` | 64k | Audio bitrate |

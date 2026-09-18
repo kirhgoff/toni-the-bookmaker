@@ -25,15 +25,16 @@ One script does everything. Do not perform its steps by hand. Render on the GPU 
 
 `-d` detaches the run so it survives the terminal, this session, and machine idle-sleep. A novel takes hours, so `-d` is almost always right.
 
-Everything lands in `<output-dir>/<name>/` (default `~/Downloads/audiobooks`):
+Everything lands in `<output-dir>/<name>/` (default `~/Downloads/audiobooks`). The book folder holds the shared inputs; each render gets its own run folder named `<timestamp>-<tag>`, where the tag is `-t` or, by default, `<model>-<host or local>`:
 
 ```
-<name>.m4b     finished audiobook, with chapters
-source.txt     cleaned text actually narrated
-voice_ref.wav  trimmed voice reference
-voice_ref.txt  its transcript
-render.log     progress and errors
-work/          resumable chunk state (deletable when done)
+source.txt                cleaned text actually narrated
+voice_ref.wav              trimmed voice reference
+voice_ref.txt              its transcript
+2026-01-15-1430-omni-tomhat/   one run
+  <name>.m4b                finished audiobook, with chapters
+  render.log                progress and errors
+  work/                      resumable chunk state (deletable when done)
 ```
 
 ## What the script handles automatically
@@ -57,6 +58,7 @@ Each of these was a manual step that went wrong at least once:
 | `-H` | none | Remote GPU host from `hosts.local.json`. Use by default. |
 | `-m` | omni | Engine. `omni` speaks 600+ languages; `espeech` and `qwen` also speak Russian; `pocket` and `kani` are English only. |
 | `-n` | input stem | Output folder name |
+| `-t` | `<model>-<host or local>` | Run folder suffix saying what the run was about, e.g. `-t slower-speed` |
 | `-o` | `$AUDIOBOOK_LIBRARY` or `~/Downloads/audiobooks` | Library folder that holds all books |
 | `-w` | 2 | Workers. Each loads its own model onto the same GPU; leave at 2. |
 | `-b` | 64k | Bitrate |
@@ -67,7 +69,7 @@ Each of these was a manual step that went wrong at least once:
 ## Checking on a run
 
 ```bash
-tr '\r' '\n' < ~/Downloads/audiobooks/<name>/render.log | tail -5
+tr '\r' '\n' < ~/Downloads/audiobooks/<name>/<run>/render.log | tail -5
 pgrep -fl "record/index.ts"      # still alive?
 ```
 
@@ -75,7 +77,7 @@ The ETA is unreliable early on; per-chunk cost drifts upward as it settles.
 
 ## Resuming
 
-Re-run the identical command. It reads the manifest, skips completed chunks, and continues. Manifest writes are flock-protected and atomic, so interruption is safe.
+Re-run the identical command. If the book's latest run folder with the same tag has no finished output yet, it's reused: the manifest is read, completed chunks are skipped, and rendering continues. If the latest run already finished, a fresh run folder is created instead — nothing is overwritten. Manifest writes are flock-protected and atomic, so interruption is safe.
 
 ## Verifying output
 
@@ -104,7 +106,7 @@ Zero matches means no chapters will be embedded; find the book's own heading sty
 
 ## Re-mastering without re-rendering
 
-Format, bitrate and chapters are decided at concatenation. If `work/` still holds the chunks, re-run the same command with different flags and only the final encode repeats.
+Format, bitrate and chapters are decided at concatenation. Delete the finished `<name>.m4b` from the run folder (or switch `-f`), then re-run the command with the new flags: the run is picked up again and only the final encode repeats.
 
 ## Remote GPU rendering
 

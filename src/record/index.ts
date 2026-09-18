@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
-import { mkdir } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { mkdir, readdir } from "node:fs/promises";
+import { basename, resolve } from "node:path";
 
 import { prepareSource, prepareVoiceReference, audioDuration } from "./prep.ts";
 import { renderLocal, renderRemote, type RenderOptions } from "./render.ts";
@@ -14,6 +14,7 @@ const USAGE = `Record an audiobook from a text or PDF file.
   -i, --input INPUT     Source .txt or .pdf (required)
   -v, --voice VOICE     Voice sample to clone. Omit for a designed voice.
   -n, --name NAME       Output folder name (default: input filename stem)
+  -t, --tag TAG         Run folder suffix explaining the run (default: <model>-<host or local>)
   -o, --output-dir DIR  Library folder that holds all books (default: $AUDIOBOOK_LIBRARY or ~/Downloads/audiobooks)
   -w, --workers N       Parallel workers (default: 2)
   -b, --bitrate RATE    Audio bitrate (default: 64k)
@@ -25,10 +26,35 @@ const USAGE = `Record an audiobook from a text or PDF file.
   -d, --detach          Run in the background, surviving terminal and sleep
   -h, --help            This help
 
-Output goes to <output-dir>/<name>/.
-Re-running the same command resumes an interrupted render.`;
+Inputs live in <output-dir>/<name>/; each render gets its own
+<output-dir>/<name>/<YYYY-MM-DD-HHMM>/ run folder.
+Re-running the same command resumes an unfinished run.`;
 
 const PROJECT_DIR = resolve(import.meta.dir, "../..");
+
+const RUN_DIR_PATTERN = /^\d{4}-\d{2}-\d{2}-\d{4}-(.+)$/;
+
+function timestampedRunName(now: Date, tag: string): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+  return `${stamp}-${tag}`;
+}
+
+export async function pickRunDir(bookDir: string, name: string, format: string, tag: string): Promise<string> {
+  const entries = await readdir(bookDir, { withFileTypes: true }).catch(() => []);
+  const runDirs = entries
+    .filter((entry) => entry.isDirectory() && RUN_DIR_PATTERN.exec(entry.name)?.[1] === tag)
+    .map((entry) => entry.name)
+    .sort()
+    .reverse();
+
+  for (const runDir of runDirs) {
+    const finished = await Bun.file(`${bookDir}/${runDir}/${name}.${format}`).exists();
+    if (!finished) return `${bookDir}/${runDir}`;
+  }
+
+  return `${bookDir}/${timestampedRunName(new Date(), tag)}`;
+}
 
 async function detach(argv: string[], logPath: string): Promise<void> {
   const cmd = ["bun", import.meta.path, ...argv.filter((a) => a !== "-d" && a !== "--detach")];
@@ -51,6 +77,7 @@ async function main(): Promise<void> {
       input: { type: "string", short: "i" },
       voice: { type: "string", short: "v" },
       name: { type: "string", short: "n" },
+      tag: { type: "string", short: "t" },
       outputDir: { type: "string", short: "o" },
       workers: { type: "string", short: "w", default: "2" },
       bitrate: { type: "string", short: "b", default: "64k" },
@@ -80,21 +107,26 @@ async function main(): Promise<void> {
 
   const name = values.name ?? basename(input).replace(/\.[^.]+$/, "");
   const library = values.outputDir ?? process.env.AUDIOBOOK_LIBRARY ?? `${process.env.HOME}/Downloads/audiobooks`;
-  const out = `${library}/${name}`;
-  await mkdir(out, { recursive: true });
+  const bookDir = `${library}/${name}`;
+  await mkdir(bookDir, { recursive: true });
+
+  const tag = (values.tag ?? `${values.model}-${values.host ?? "local"}`).replace(/[^\w.-]+/g, "-");
+  const runDir = await pickRunDir(bookDir, name, values.format!, tag);
+  await mkdir(runDir, { recursive: true });
 
   if (values.detach && !process.env.TONI_RECORD_CHILD) {
-    await detach(Bun.argv.slice(2), `${out}/render.log`);
+    await detach(Bun.argv.slice(2), `${runDir}/render.log`);
     console.log(`Recording '${name}' in the background.`);
-    console.log(`Log:    ${out}/render.log`);
-    console.log(`Output: ${out}/${name}.${values.format}`);
+    console.log(`Run:    ${runDir}`);
+    console.log(`Log:    ${runDir}/render.log`);
+    console.log(`Output: ${runDir}/${name}.${values.format}`);
     return;
   }
 
   await requireCommand("uv", "See https://astral.sh/uv");
   await requireCommand("ffmpeg", "brew install ffmpeg");
 
-  const source = `${out}/source.txt`;
+  const source = `${bookDir}/source.txt`;
   if (await Bun.file(source).exists()) {
     log("Source already prepared, reusing");
   } else {
@@ -102,8 +134,8 @@ async function main(): Promise<void> {
     await prepareSource(input, source);
   }
 
-  const voiceRef = `${out}/voice_ref.wav`;
-  const refTextPath = `${out}/voice_ref.txt`;
+  const voiceRef = `${bookDir}/voice_ref.wav`;
+  const refTextPath = `${bookDir}/voice_ref.txt`;
   if (voice && !(await Bun.file(voiceRef).exists())) {
     log("Preparing voice reference");
     await prepareVoiceReference(voice, voiceRef);
@@ -119,7 +151,8 @@ async function main(): Promise<void> {
 
   const options: RenderOptions = {
     projectDir: PROJECT_DIR,
-    out,
+    bookDir,
+    runDir,
     name,
     format: values.format!,
     bitrate: values.bitrate!,
@@ -136,7 +169,7 @@ async function main(): Promise<void> {
   if (values.host) await renderRemote(values.host, options);
   else await renderLocal(options);
 
-  const book = `${out}/${name}.${values.format}`;
+  const book = `${runDir}/${name}.${values.format}`;
   const hours = (await audioDuration(book)) / 3600;
   const size = (Bun.file(book).size / 1e6).toFixed(0);
   const { stdout: chapters } = await run([
@@ -144,10 +177,12 @@ async function main(): Promise<void> {
   ]);
   const chapterCount = chapters.trim() ? chapters.trim().split("\n").length : 0;
   log(`Done: ${book} (${size} MB, ${hours.toFixed(1)}h, ${chapterCount} chapters)`);
-  log(`Intermediate chunks in ${out}/work — safe to delete once you are happy`);
+  log(`Intermediate chunks in ${runDir}/work — safe to delete once you are happy`);
 }
 
-main().catch((error: Error) => {
-  console.error(`error: ${error.message}`);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((error: Error) => {
+    console.error(`error: ${error.message}`);
+    process.exit(1);
+  });
+}
