@@ -79,6 +79,16 @@ DEFAULT_CHAPTER_PATTERN = (
 CHAPTERED_FORMATS = {".m4b", ".m4a", ".mp4"}
 
 
+CLAUSE_CUT = re.compile(r"[,;:\-—]\s*$")
+
+
+def pause_after(text: str | None, pause_ms: int) -> int:
+    """A chunk cut mid-sentence gets a breath, not a full-stop pause."""
+    if text and CLAUSE_CUT.search(text):
+        return pause_ms // 4
+    return pause_ms
+
+
 def wav_duration_ms(path: Path) -> int:
     """Read a WAV's duration from its header without decoding it."""
     with contextlib.closing(wave.open(str(path), "rb")) as wf:
@@ -110,7 +120,7 @@ def build_chapters(
                 chapters.append((offset, title[:120]))
         offset += wav_duration_ms(audio_path)
         if index < len(audio_paths) - 1:
-            offset += pause_ms
+            offset += pause_after(text, pause_ms)
 
     return chapters, offset
 
@@ -173,18 +183,24 @@ def concatenate_with_ffmpeg(
     if work_dir is None:
         work_dir = output_path.parent
 
-    silence_path = work_dir / "silence.wav"
     concat_list_path = work_dir / "concat_list.txt"
+    silence_paths: dict[int, Path] = {}
 
-    create_silence_wav(silence_path, sample_rate, pause_ms)
+    def silence_for(ms: int) -> Path:
+        if ms not in silence_paths:
+            silence_paths[ms] = work_dir / f"silence_{ms}.wav"
+            create_silence_wav(silence_paths[ms], sample_rate, ms)
+        return silence_paths[ms]
+
+    def concat_entry(path: Path) -> str:
+        return "file '" + str(path.absolute()).replace("'", "'\\''") + "'\n"
 
     with open(concat_list_path, "w") as f:
         for i, audio_path in enumerate(audio_paths):
-            escaped_path = str(audio_path.absolute()).replace("'", "'\\''")
-            f.write(f"file '{escaped_path}'\n")
+            f.write(concat_entry(audio_path))
             if i < len(audio_paths) - 1:
-                escaped_silence = str(silence_path.absolute()).replace("'", "'\\''")
-                f.write(f"file '{escaped_silence}'\n")
+                text = chunk_texts[i] if chunk_texts else None
+                f.write(concat_entry(silence_for(pause_after(text, pause_ms))))
 
     wants_chapters = output_path.suffix.lower() in CHAPTERED_FORMATS
     chapters: list[tuple[int, str]] = []
