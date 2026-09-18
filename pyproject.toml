@@ -51,6 +51,8 @@ packages = ["src/toni"]
 dev = []
 
 [tool.uv]
+# torchcodec 0.10 cannot load Homebrew ffmpeg 9 on macOS and transformers imports it whenever installed
+override-dependencies = ["torchcodec ; sys_platform != 'darwin'"]
 conflicts = [
     [
         { extra = "pocket" },

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Callable
 
 import numpy as np
+import soundfile as sf
 
 from toni.stress import mark_stress
 from toni.tts.base import TTSEngine
@@ -13,6 +14,14 @@ MODEL_REPO = "ESpeech/ESpeech-TTS-1_RL-V2"
 CHECKPOINT_FILENAME = "espeech_tts_rlv2.pt"
 VOCAB_FILENAME = "vocab.txt"
 DIT_CONFIG = dict(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_layers=4)
+
+
+F5_CLIP_SECONDS = 12.0
+
+
+def _duration(path: str) -> float:
+    info = sf.info(path)
+    return info.frames / info.samplerate
 
 
 class ESpeechTTSEngine(TTSEngine):
@@ -113,7 +122,12 @@ class ESpeechTTSEngine(TTSEngine):
             ref_text = os.environ.get("TONI_REF_TEXT", "")
             if russian and ref_text and "+" not in ref_text:
                 ref_text = mark_stress(ref_text)
-            self._refs[key] = preprocess(key, ref_text)
+            clipped_audio, used_text = preprocess(key, ref_text)
+            if ref_text and _duration(key) > F5_CLIP_SECONDS:
+                clipped_audio, used_text = preprocess(key, "")
+                if russian:
+                    used_text = mark_stress(used_text)
+            self._refs[key] = (clipped_audio, used_text)
         return self._refs[key]
 
     def unload(self) -> None:

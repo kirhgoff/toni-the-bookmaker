@@ -57,32 +57,43 @@ async function detectSilences(path: string): Promise<Silence[]> {
 }
 
 const TARGET_SECONDS = 7;
-const MAX_UNTRIMMED = 12;
+const MAX_CLIP = 10;
 const MIN_CLIP = 3;
 
 /**
- * Cut the voice sample to a short clip bounded by natural pauses.
+ * Cut the voice sample to a short clip that starts and ends on a natural pause,
+ * anywhere in the recording; a clip cut mid-word makes F5-TTS-style models
+ * speak the transcript's dangling words into the narration.
  *
  * The reference is prepended as conditioning to every generation, so its
  * length is a per-chunk cost paid thousands of times; OmniVoice recommends
- * 3-10s.
+ * 3-10s, and F5-TTS silently clips anything over 12s while keeping the full
+ * transcript, which makes the model hallucinate the clipped words.
  */
+export function pickClipWindow(silences: Silence[], total: number): { from: number; to: number } {
+  if (total <= MAX_CLIP) return { from: 0, to: total };
+
+  const edges = [{ start: 0, end: 0 }, ...silences, { start: total, end: total }];
+  let best: { from: number; to: number; delta: number } | undefined;
+  for (const opening of edges) {
+    for (const closing of edges) {
+      const length = closing.start - opening.end;
+      if (length < MIN_CLIP || length > MAX_CLIP) continue;
+      const delta = Math.abs(length - TARGET_SECONDS);
+      if (!best || delta < best.delta) best = { from: opening.end, to: closing.start, delta };
+    }
+  }
+  if (best) return { from: best.from, to: best.to };
+
+  const lead = silences.find((s) => s.start < 1);
+  const from = lead ? lead.end : 0;
+  return { from, to: Math.min(from + MAX_CLIP, total) };
+}
+
 export async function prepareVoiceReference(source: string, dest: string): Promise<void> {
   const total = await audioDuration(source);
-
-  let from = 0;
-  let to = total;
-  if (total > MAX_UNTRIMMED) {
-    const silences = await detectSilences(source);
-    const lead = silences.find((s) => s.start < 1);
-    from = lead ? lead.end : 0;
-
-    const candidates = silences.filter((s) => s.start >= from + MIN_CLIP);
-    const best = candidates
-      .map((s) => ({ at: s.start, delta: Math.abs(s.start - (from + TARGET_SECONDS)) }))
-      .sort((a, b) => a.delta - b.delta)[0];
-    to = best ? best.at : Math.min(from + TARGET_SECONDS, total);
-  }
+  const silences = total > MAX_CLIP ? await detectSilences(source) : [];
+  const { from, to } = pickClipWindow(silences, total);
 
   await runOrThrow([
     "ffmpeg", "-v", "error", "-y",

@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import click
+import soundfile as sf
 
 
 def transcribe_reference(audio_path: Path, device: str = "cpu") -> str:
@@ -22,7 +23,10 @@ def transcribe_reference(audio_path: Path, device: str = "cpu") -> str:
         dtype=torch.float32 if device == "cpu" else torch.float16,
     )
     model.load_asr_model()
-    return model.transcribe(str(audio_path)).strip()
+    waveform, sample_rate = sf.read(audio_path, dtype="float32")
+    if waveform.ndim > 1:
+        waveform = waveform.mean(axis=1)
+    return model.transcribe((waveform, sample_rate)).strip()
 
 
 @click.command()
