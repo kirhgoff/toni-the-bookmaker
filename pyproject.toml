@@ -21,6 +21,20 @@ omni = [
     "torchaudio==2.8.0",
     "soundfile>=0.12.1",
 ]
+espeech = [
+    "f5-tts>=1.1.22",
+    "torch==2.8.0",
+    "torchaudio==2.8.0",
+    "soundfile>=0.12.1",
+    "toni[stress]",
+]
+qwen = [
+    "qwen-tts",
+    "torch==2.8.0",
+    "torchaudio==2.8.0",
+    "soundfile>=0.12.1",
+]
+stress = ["silero-stress"]
 
 [project.scripts]
 toni = "toni.cli:main"
@@ -42,5 +56,7 @@ conflicts = [
         { extra = "pocket" },
         { extra = "kani" },
         { extra = "omni" },
+        { extra = "espeech" },
+        { extra = "qwen" },
     ],
 ]

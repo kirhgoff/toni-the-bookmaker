@@ -33,9 +33,9 @@ export async function renderLocal(o: RenderOptions): Promise<void> {
   log(`Rendering locally with ${o.workers} workers (re-run to resume)`);
   const env: Record<string, string> = {
     ...process.env as Record<string, string>,
-    TONI_OMNI_LANGUAGE: o.language,
+    TONI_LANGUAGE: o.language,
   };
-  if (o.refText) env.TONI_OMNI_REF_TEXT = o.refText;
+  if (o.refText) env.TONI_REF_TEXT = o.refText;
 
   const proc = Bun.spawn(
     ["uv", "run", "--project", o.projectDir, "--extra", o.model,
@@ -87,8 +87,8 @@ export async function renderRemote(hostName: string, o: RenderOptions): Promise<
   const envExports = Object.entries(host.env ?? {})
     .map(([k, v]) => `export ${k}=${v}`).join("\n");
   const dockerEnv = [
-    "-e", `TONI_OMNI_LANGUAGE=${shellQuote(o.language)}`,
-    ...(o.refText ? ["-e", `TONI_OMNI_REF_TEXT=${shellQuote(o.refText)}`] : []),
+    "-e", `TONI_LANGUAGE=${shellQuote(o.language)}`,
+    ...(o.refText ? ["-e", `TONI_REF_TEXT=${shellQuote(o.refText)}`] : []),
   ].join(" ");
 
   const script = [

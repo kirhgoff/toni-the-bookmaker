@@ -55,7 +55,7 @@ Each of these was a manual step that went wrong at least once:
 | `-v` | none | Voice to clone. Omit for a designed voice — it re-rolls per worker, so pass a sample for a consistent narrator. |
 | `-l` | en | Language of the text. Always set it. |
 | `-H` | none | Remote GPU host from `hosts.local.json`. Use by default. |
-| `-m` | omni | Engine. `omni` speaks 600+ languages; `pocket` and `kani` are English only. |
+| `-m` | omni | Engine. `omni` speaks 600+ languages; `espeech` and `qwen` also speak Russian; `pocket` and `kani` are English only. |
 | `-n` | input stem | Output folder name |
 | `-o` | `$AUDIOBOOK_LIBRARY` or `~/Downloads/audiobooks` | Library folder that holds all books |
 | `-w` | 2 | Workers. Each loads its own model onto the same GPU; leave at 2. |

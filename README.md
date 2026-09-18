@@ -84,8 +84,22 @@ partway through — passing a sample avoids that.
 ## Languages
 
 The default engine, `omni`, can narrate in any of 600+ languages — pass one
-with `-l`, e.g. `-l ru` for Russian. The other two engines, `pocket` and
-`kani`, only support English.
+with `-l`, e.g. `-l ru` for Russian. `espeech` and `qwen` also support
+Russian; `pocket` and `kani` only support English.
+
+### Russian stress marking
+
+Russian has no fixed stress rule, so a TTS model that cannot see the stressed
+syllable in advance guesses, and gets it wrong on homographs (`з+амок` castle
+vs `зам+ок` lock) and sometimes stresses the same word differently between
+runs. `src/toni/stress.py` marks stress automatically with
+[silero-stress](https://github.com/snakers4/silero-stress); install it with
+`uv sync --extra stress` (or `--extra espeech`, which pulls it in). Only
+`espeech` uses it today — it takes explicit `+`-before-vowel marks
+(`прив+ет`) and applies them automatically to Russian text and reference
+transcripts. `omni` ignores stress marks entirely, and `qwen` was trained
+without them and does worse when given `+` notation, so neither is
+stress-marked.
 
 ## Options
 
@@ -100,7 +114,7 @@ with `-l`, e.g. `-l ru` for Russian. The other two engines, `pocket` and
 | `-f, --format` | m4b | `m4b` (with chapters) or `mp3` (no chapters) |
 | `-c, --chapters` | see below | Chapter heading pattern |
 | `-l, --language` | en | Language code |
-| `-m, --model` | omni | TTS engine: `omni`, `pocket`, or `kani` |
+| `-m, --model` | omni | TTS engine: `omni`, `pocket`, `kani`, `espeech`, or `qwen` |
 | `-H, --host` | none | Render on a remote GPU host instead of locally |
 | `-d, --detach` | off | Run in the background |
 | `-h, --help` | | Show this help |
@@ -127,7 +141,7 @@ git; copy `hosts.example.json` to get started.
 
 ## What's inside
 
-- **Three speech engines**, each an optional Python dependency, only one
+- **Five speech engines**, each an optional Python dependency, only one
   installed at a time (see [Which engine](#which-engine)).
 - **Whisper** (via the `omni` engine) transcribes your voice sample once, so
   the narration itself never needs to re-run speech recognition.
@@ -146,11 +160,13 @@ git; copy `hosts.example.json` to get started.
 
 ### Which engine
 
-| Engine | Size | Languages | Runs on | Voice cloning |
-|---|---|---|---|---|
-| `omni` (OmniVoice, default) | 0.6B params | 600+, including Russian | Apple Silicon or NVIDIA GPU | Yes, from a short sample |
-| `pocket` (Kyutai Pocket TTS) | 100M params | English only | CPU | Yes, from a short sample |
-| `kani` (Kani TTS 2) | 400M params | English only | NVIDIA GPU | Yes, via a speaker embedding |
+| Engine | Size | Languages | Runs on | Voice cloning | Licence |
+|---|---|---|---|---|---|
+| `omni` (OmniVoice, default) | 0.6B params | 600+, including Russian | Apple Silicon or NVIDIA GPU | Yes, from a short sample | code Apache-2.0, weights CC-BY-NC |
+| `pocket` (Kyutai Pocket TTS) | 100M params | English only | CPU | Yes, from a short sample | MIT / CC-BY-4.0 |
+| `kani` (Kani TTS 2) | 400M params | English only | NVIDIA GPU | Yes, via a speaker embedding | LFM 1.0 (free under $10M rev.) |
+| `espeech` (ESpeech-TTS-1) | ~0.34B params | Russian only, stress-aware | Apple Silicon or NVIDIA GPU (unofficial MPS) | Yes, from a short sample + transcript | Apache-2.0 |
+| `qwen` (Qwen3-TTS) | 1.7B params | 10, including Russian | NVIDIA GPU (CUDA-first; MPS/CPU untested) | Yes, from a short sample + transcript | Apache-2.0 |
 
 ## Project layout
 
@@ -158,7 +174,8 @@ git; copy `hosts.example.json` to get started.
 src/
   toni/               Python — the speech models and audio pipeline
     cli.py            the underlying `toni` command
-    tts/               registry.py, omni.py, pocket.py, kani.py
+    tts/               registry.py, omni.py, pocket.py, kani.py, espeech.py, qwen.py
+    stress.py          marks Russian word stress ahead of synthesis
     chunker.py         splits text into narratable pieces
     audio_encoder.py   stitches audio, embeds chapters, encodes output
     transcribe.py      transcribes a voice sample with Whisper
