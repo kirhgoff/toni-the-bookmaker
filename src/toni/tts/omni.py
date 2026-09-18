@@ -19,9 +19,9 @@ class OmniVoiceEngine(TTSEngine):
     - Runs on Apple Silicon via MPS
 
     Environment overrides:
-        TONI_OMNI_LANGUAGE: language code (e.g. 'ru'); unset = auto
+        TONI_LANGUAGE:      language code (e.g. 'ru'); unset = auto
         TONI_OMNI_INSTRUCT: voice attributes used when no voice sample is given
-        TONI_OMNI_REF_TEXT: transcript of the voice sample, skips Whisper
+        TONI_REF_TEXT:      transcript of the voice sample, skips Whisper
         TONI_OMNI_DEVICE:   cpu / mps / cuda; unset = auto
         TONI_OMNI_NUM_STEP: diffusion steps, default 32 (16 is faster)
         TONI_OMNI_SPEED:    speaking rate factor; below 1.0 gives every chunk more room
@@ -74,7 +74,7 @@ class OmniVoiceEngine(TTSEngine):
     def _voice_prompt(self, voice_sample: Path):
         key = str(voice_sample)
         if key not in self._prompts:
-            ref_text = os.environ.get("TONI_OMNI_REF_TEXT")
+            ref_text = os.environ.get("TONI_REF_TEXT")
             if ref_text is None and getattr(self._model, "_asr_pipe", None) is None:
                 self._model.load_asr_model()
             self._prompts[key] = self._model.create_voice_clone_prompt(
@@ -95,7 +95,7 @@ class OmniVoiceEngine(TTSEngine):
 
         kwargs = {
             "text": text,
-            "language": os.environ.get("TONI_OMNI_LANGUAGE") or None,
+            "language": os.environ.get("TONI_LANGUAGE") or None,
             "generation_config": OmniVoiceGenerationConfig(
                 num_step=int(os.environ.get("TONI_OMNI_NUM_STEP", "32"))
             ),

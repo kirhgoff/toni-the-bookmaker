@@ -15,7 +15,7 @@ RUN uv sync --extra $EXTRA \
     && rm -rf /root/.cache /tmp/*
 
 ENV HF_HOME=/models \
-    TONI_OMNI_LANGUAGE=en \
+    TONI_LANGUAGE=en \
     TONI_OMNI_DEVICE=cuda
 
 ENTRYPOINT ["uv", "run", "--no-sync", "python", "-m", "toni.cli"]

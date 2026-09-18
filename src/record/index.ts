@@ -20,7 +20,7 @@ const USAGE = `Record an audiobook from a text or PDF file.
   -f, --format FORMAT   m4b (default, with chapters) or mp3
   -c, --chapters REGEX  Chapter heading pattern
   -l, --language LANG   Language code (default: en)
-  -m, --model MODEL     TTS engine: omni (default), pocket, kani
+  -m, --model MODEL     TTS engine: omni (default), pocket, kani, espeech, qwen
   -H, --host HOST       Render on a remote GPU host instead of locally
   -d, --detach          Run in the background, surviving terminal and sleep
   -h, --help            This help
