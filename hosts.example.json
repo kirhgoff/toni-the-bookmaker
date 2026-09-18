@@ -1,0 +1,18 @@
+{
+  "gpu-box": {
+    "ssh": "user@gpu-box",
+    "identity": ".ssh/id_ed25519",
+    "shell": "bash -s",
+    "workdir": "toni-render",
+    "runtime": "docker"
+  },
+  "windows-box": {
+    "ssh": "user@windows-box",
+    "identity": ".ssh/id_ed25519",
+    "shell": "wsl -d Ubuntu -- bash -s",
+    "rsyncPath": "wsl -d Ubuntu -- rsync",
+    "workdir": "toni-render",
+    "runtime": "podman",
+    "leaseAcquire": "ollama.exe stop <model> || true"
+  }
+}

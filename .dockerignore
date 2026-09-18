@@ -1,0 +1,10 @@
+.venv/
+work/
+docs/
+tests/
+.git/
+*.mp3
+*.m4b
+*.wav
+*.m4a
+*.log
