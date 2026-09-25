@@ -62,6 +62,7 @@ Each of these was a manual step that went wrong at least once:
 | `-o` | `$AUDIOBOOK_LIBRARY` or `~/Downloads/audiobooks` | Library folder that holds all books |
 | `-w` | 2 | Workers. Each loads its own model onto the same GPU; leave at 2. |
 | `-b` | 64k | Bitrate |
+| `-p` | 500 | Pause in ms between sentences and chunks; lower it if the narration drags |
 | `-f` | m4b | `m4b` (AAC, chapters) or `mp3` (no chapters) |
 | `-c` | see below | Chapter heading regex |
 | `-d` | off | Detach |

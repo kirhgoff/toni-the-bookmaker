@@ -266,6 +266,8 @@ def main(
     work_base = work_dir if work_dir else Path("./work")
     work = WorkManager(output_file, work_base)
 
+    os.environ["TONI_PAUSE_MS"] = str(chunk_pause)
+
     if verbose:
         click.echo(f"Input: {input_file}")
         click.echo(f"Output: {output_file}")

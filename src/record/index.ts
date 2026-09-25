@@ -18,6 +18,7 @@ const USAGE = `Record an audiobook from a text or PDF file.
   -o, --output-dir DIR  Library folder that holds all books (default: $AUDIOBOOK_LIBRARY or ~/Downloads/audiobooks)
   -w, --workers N       Parallel workers (default: 2)
   -b, --bitrate RATE    Audio bitrate (default: 64k)
+  -p, --pause MS        Pause between sentences and chunks in milliseconds (default: 500)
   -f, --format FORMAT   m4b (default, with chapters) or mp3
   -c, --chapters REGEX  Chapter heading pattern
   -l, --language LANG   Language code (default: en)
@@ -81,6 +82,7 @@ async function main(): Promise<void> {
       outputDir: { type: "string", short: "o" },
       workers: { type: "string", short: "w", default: "2" },
       bitrate: { type: "string", short: "b", default: "64k" },
+      pause: { type: "string", short: "p", default: "500" },
       format: { type: "string", short: "f", default: "m4b" },
       chapters: { type: "string", short: "c" },
       language: { type: "string", short: "l", default: "en" },
@@ -156,6 +158,7 @@ async function main(): Promise<void> {
     name,
     format: values.format!,
     bitrate: values.bitrate!,
+    pauseMs: Number.parseInt(values.pause!, 10),
     workers: Number.parseInt(values.workers!, 10),
     language: values.language!,
     model: values.model!,

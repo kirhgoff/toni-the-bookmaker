@@ -18,7 +18,33 @@ DIT_CONFIG = dict(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_la
 
 
 F5_CLIP_SECONDS = 12.0
-SENTENCE_PAUSE_SECONDS = 0.35
+DEFAULT_PAUSE_MS = 500
+EDGE_SILENCE_MS = 50
+MAX_GAP_MS = 300
+SILENCE_THRESHOLD_DB = -40.0
+
+
+def tighten_silence(audio: np.ndarray, sample_rate: int) -> np.ndarray:
+    if audio.size == 0:
+        return audio
+    threshold = 10 ** (SILENCE_THRESHOLD_DB / 20) * np.max(np.abs(audio))
+    loud = np.flatnonzero(np.abs(audio) > threshold)
+    if loud.size == 0:
+        return audio[: int(MAX_GAP_MS / 1000 * sample_rate)]
+    edge = int(EDGE_SILENCE_MS / 1000 * sample_rate)
+    audio = audio[max(loud[0] - edge, 0) : loud[-1] + edge]
+    quiet = (np.abs(audio) <= threshold).astype(np.int8)
+    boundaries = np.flatnonzero(np.diff(quiet)) + 1
+    run_starts = boundaries[quiet[boundaries] == 1]
+    run_ends = boundaries[quiet[boundaries] == 0]
+    keep = np.ones(audio.size, dtype=bool)
+    max_gap = int(MAX_GAP_MS / 1000 * sample_rate)
+    for start in run_starts:
+        end = run_ends[run_ends > start]
+        end = end[0] if end.size else audio.size
+        if end - start > max_gap:
+            keep[start + max_gap : end] = False
+    return audio[keep]
 
 
 def _duration(path: str) -> float:
@@ -107,7 +133,8 @@ class ESpeechTTSEngine(TTSEngine):
         ref_audio, ref_text = self._reference(voice_sample, russian, preprocess_ref_audio_text)
 
         sentences = [s.strip() for s in split_into_sentences(text) if s.strip()]
-        pause = np.zeros(int(SENTENCE_PAUSE_SECONDS * self.sample_rate), dtype=np.float32)
+        pause_ms = int(os.environ.get("TONI_PAUSE_MS", DEFAULT_PAUSE_MS))
+        pause = np.zeros(int(pause_ms / 1000 * self.sample_rate), dtype=np.float32)
         parts: list[np.ndarray] = []
         for index, sentence in enumerate(sentences):
             wav, _sample_rate, _spectrogram = infer_process(
@@ -115,7 +142,7 @@ class ESpeechTTSEngine(TTSEngine):
             )
             if parts:
                 parts.append(pause)
-            parts.append(np.asarray(wav, dtype=np.float32))
+            parts.append(tighten_silence(np.asarray(wav, dtype=np.float32), self.sample_rate))
             if progress_callback:
                 progress_callback((index + 1) / len(sentences))
 

@@ -116,6 +116,7 @@ stress-marked.
 | `-o, --output-dir` | `~/Downloads/audiobooks` | Folder that holds all your books |
 | `-w, --workers` | 2 | Parallel narration processes — don't raise this much, see [Troubleshooting](#troubleshooting) |
 | `-b, --bitrate` | 64k | Audio bitrate |
+| `-p, --pause` | 500 | Pause between sentences and chunks, in milliseconds |
 | `-f, --format` | m4b | `m4b` (with chapters) or `mp3` (no chapters) |
 | `-c, --chapters` | see below | Chapter heading pattern |
 | `-l, --language` | en | Language code |

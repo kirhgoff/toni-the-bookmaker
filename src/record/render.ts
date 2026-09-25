@@ -10,6 +10,7 @@ export interface RenderOptions {
   name: string;
   format: string;
   bitrate: string;
+  pauseMs: number;
   workers: number;
   language: string;
   model: string;
@@ -24,6 +25,7 @@ function cliArgs(o: RenderOptions, inDir: string, outDir: string): string[] {
     "-o", `${outDir}/${o.name}.${o.format}`,
     "-m", o.model,
     "--bitrate", o.bitrate,
+    "--chunk-pause", String(o.pauseMs),
     "--workers", String(o.workers),
     "--work-dir", `${outDir}/work`,
   ];
