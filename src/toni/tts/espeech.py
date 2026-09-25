@@ -7,6 +7,7 @@ from typing import Callable
 import numpy as np
 import soundfile as sf
 
+from toni.chunker import split_into_sentences
 from toni.stress import mark_stress
 from toni.tts.base import TTSEngine
 
@@ -17,6 +18,7 @@ DIT_CONFIG = dict(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_la
 
 
 F5_CLIP_SECONDS = 12.0
+SENTENCE_PAUSE_SECONDS = 0.35
 
 
 def _duration(path: str) -> float:
@@ -53,7 +55,7 @@ class ESpeechTTSEngine(TTSEngine):
 
     @property
     def max_chunk_chars(self) -> int:
-        return 200
+        return 500
 
     def _resolve_device(self) -> str:
         import torch
@@ -104,17 +106,20 @@ class ESpeechTTSEngine(TTSEngine):
             text = mark_stress(text)
         ref_audio, ref_text = self._reference(voice_sample, russian, preprocess_ref_audio_text)
 
-        if progress_callback:
-            progress_callback(0.1)
+        sentences = [s.strip() for s in split_into_sentences(text) if s.strip()]
+        pause = np.zeros(int(SENTENCE_PAUSE_SECONDS * self.sample_rate), dtype=np.float32)
+        parts: list[np.ndarray] = []
+        for index, sentence in enumerate(sentences):
+            wav, _sample_rate, _spectrogram = infer_process(
+                ref_audio, ref_text, sentence, self._model, self._vocoder
+            )
+            if parts:
+                parts.append(pause)
+            parts.append(np.asarray(wav, dtype=np.float32))
+            if progress_callback:
+                progress_callback((index + 1) / len(sentences))
 
-        wav, _sample_rate, _spectrogram = infer_process(
-            ref_audio, ref_text, text, self._model, self._vocoder
-        )
-
-        if progress_callback:
-            progress_callback(1.0)
-
-        return np.asarray(wav, dtype=np.float32)
+        return np.concatenate(parts) if parts else np.zeros(0, dtype=np.float32)
 
     def _reference(self, voice_sample: Path, russian: bool, preprocess) -> tuple:
         key = str(voice_sample)
