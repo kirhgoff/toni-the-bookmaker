@@ -9,7 +9,7 @@ One script does everything. Do not perform its steps by hand. Render on the GPU 
 
 ## Steps
 
-1. **Inspect the source.** `file BOOK.txt` must say UTF-8; older `.txt` files are often in a legacy encoding (KOI8-R, CP1251, Windows-1252), so convert first with `iconv`. Note the language and the chapter heading style (see [Chapters](#chapters)).
+1. **Inspect the source.** `file BOOK.txt` must say UTF-8; older `.txt` files are often in a legacy encoding (KOI8-R, CP1251, Windows-1252), so convert first with `iconv`. Note the language and the chapter heading style (see [Chapters](#chapters)). For a PDF or an OCR'd scan, run the `prepare-text` skill first and pass the cleaned `.txt`.
 2. **Check the GPU host.** Hosts live in the untracked `hosts.local.json` at the repo root (shape in `hosts.example.json`); the first entry is the default. Probe it:
    ```bash
    jq -r 'to_entries[0] | "\(.key) \(.value.ssh) \(.value.identity)"' hosts.local.json
@@ -47,6 +47,8 @@ Each of these was a manual step that went wrong at least once:
 - **Bitrate** — 64k mono, matching commercial audiobooks.
 - **Detached execution** — `nohup` + `caffeinate` so a closed session or idle Mac doesn't kill the job.
 - **Chapters** — headings detected in the text and embedded as real chapter marks, with offsets computed from rendered audio durations.
+- **Decode and loudness** — after the encode the book is decoded end to end and its integrated loudness measured; more than 2 LU off -18 LUFS (a -37 dB clone sample once produced a -39 dB book) and it's re-encoded through loudnorm with chapters kept.
+- **Zero chapters** in an m4b are flagged in the log.
 
 ## Options
 
@@ -82,14 +84,7 @@ Re-run the identical command. If the book's latest run folder with the same tag 
 
 ## Verifying output
 
-"Done!" is not proof: the final step concatenates thousands of files.
-
-```bash
-ffmpeg -v error -i <name>.m4b -f null -    # silence = no corruption
-ffprobe -v error -print_format csv -show_chapters <name>.m4b | wc -l
-```
-
-Spot-check loudness at several offsets with `volumedetect`; speech sits around -25 dB mean, silence or noise does not.
+Decode and loudness are checked automatically after every render. For chapters, duration, failed chunks, and long pauses, use the `verify-audiobook` skill. `scripts/normalize_audiobook.sh BOOK.m4b` re-checks loudness for any existing file.
 
 ## Expectations
 
@@ -119,3 +114,4 @@ Format, bitrate and chapters are decided at concatenation. Delete the finished `
   podman build --build-arg EXTRA=<model> -t toni:<model> .
   ```
 - **Crash signature:** `Cannot re-initialize CUDA in forked subprocess` in `render.log` with `ForkPoolWorker` respawning. The worker pool must use the spawn start method (it does since commit 1cdeb53); an image built before that fix loops forever. Kill the local `record/index.ts` process, `podman rm -f toni-<name>` on the host, rebuild, re-run.
+- **Stalled renders:** on the tomhat GPU host (12 GB VRAM, Windows/WSL) two workers once filled VRAM to 11.5 GB and generation silently slowed to ~760 s/chunk — WSL spills VRAM into shared system memory instead of failing. One worker (`-w 1`) ran at ~1.3 s/chunk. Signature: progress stuck, GPU at 100% util, VRAM near full. Fix: kill the local `record/index.ts` process, `podman rm -f toni-<name>` on the host (via the host's configured shell, e.g. `ssh ... 'wsl -d Ubuntu -- bash -s' <<'EOF'`), re-run with `-w 1` — completed chunks are kept. Also: if the host sleeps or reboots, SSH drops ("Operation timed out") and the local driver exits; re-run the identical command to resume.

@@ -185,13 +185,16 @@ src/
     chunker.py         splits text into narratable pieces
     audio_encoder.py   stitches audio, embeds chapters, encodes output
     transcribe.py      transcribes a voice sample with Whisper
+    clean_pdf_text.py  turns pdftotext -layout output into narratable paragraphs
   record/             TypeScript — the one-command recorder you actually run
     index.ts           entry point, argument parsing
     prep.ts            text cleanup, voice sample trimming
     render.ts          runs the narration, locally or remotely
     hosts.ts           loads remote GPU hosts from hosts.local.json
+    loudness.ts        measures and, if needed, re-normalises loudness
 scripts/
-  record_audiobook.sh  thin wrapper around `bun src/record/index.ts`
+  record_audiobook.sh    thin wrapper around `bun src/record/index.ts`
+  normalize_audiobook.sh thin wrapper around `bun src/record/loudness.ts`
 ```
 
 There's also a lower-level way to run things directly, without the
@@ -211,12 +214,14 @@ prefer the script unless you have a specific reason not to.
 - **Don't raise `-w` (workers) much above 2.** Each worker loads its own copy
   of the speech model onto the same GPU or CPU, so more workers can make
   things slower, not faster.
-- **"Done!" isn't proof the file is good** — the last step concatenates
-  thousands of small audio pieces. Sanity-check it:
-  ```bash
-  ffmpeg -v error -i book.m4b -f null -    # silence means no corruption
-  ffprobe -v error -print_format csv -show_chapters book.m4b | wc -l
-  ```
+- **The file might still be bad after "Done!"** — every render is decoded
+  end to end and loudness-normalised to -18 LUFS when it's off; run
+  `scripts/normalize_audiobook.sh book.m4b` to do the same for any existing
+  file.
+- **The book is too quiet** — same script: `scripts/normalize_audiobook.sh book.m4b`.
 - **It's extremely slow with no GPU or Apple Silicon.** CPU-only rendering is
   roughly 8 times slower — a full novel can take on the order of a week.
   Don't try this on a plain CPU server; use `-H` to render remotely instead.
+- **The source is a scanned PDF** — `pdftotext -layout raw.pdf raw.txt` then
+  `uv run python -m toni.clean_pdf_text raw.txt -o book.txt --from N --to M`
+  (see the `prepare-text` skill).

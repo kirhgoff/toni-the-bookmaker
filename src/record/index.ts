@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { mkdir, readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
+import { verifyBook } from "./loudness.ts";
 import { prepareSource, prepareVoiceReference, audioDuration } from "./prep.ts";
 import { renderLocal, renderRemote, type RenderOptions } from "./render.ts";
 import { log, requireCommand, run, runOrThrow } from "./shell.ts";
@@ -173,12 +174,16 @@ async function main(): Promise<void> {
   else await renderLocal(options);
 
   const book = `${runDir}/${name}.${values.format}`;
+  await verifyBook(book);
   const hours = (await audioDuration(book)) / 3600;
   const size = (Bun.file(book).size / 1e6).toFixed(0);
   const { stdout: chapters } = await run([
     "ffprobe", "-v", "error", "-print_format", "csv", "-show_chapters", book,
   ]);
   const chapterCount = chapters.trim() ? chapters.trim().split("\n").length : 0;
+  if (values.format === "m4b" && chapterCount === 0) {
+    log("Warning: no chapters embedded; check the heading pattern (-c) against source.txt");
+  }
   log(`Done: ${book} (${size} MB, ${hours.toFixed(1)}h, ${chapterCount} chapters)`);
   log(`Intermediate chunks in ${runDir}/work — safe to delete once you are happy`);
 }
