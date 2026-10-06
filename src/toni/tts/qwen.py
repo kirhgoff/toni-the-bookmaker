@@ -27,8 +27,8 @@ LANGUAGE_NAMES = {
 class QwenTTSEngine(TTSEngine):
     """TTS engine using Qwen3-TTS, an Apache-2.0 alternative to OmniVoice.
 
-    - 1.7B parameters by default (12Hz token rate, 24 kHz output) — fits a
-      12 GB GPU or Apple Silicon comfortably; override with TONI_QWEN_MODEL
+    - 1.7B parameters by default (12Hz token rate, 24 kHz output); override
+      with TONI_QWEN_MODEL to select a smaller or larger checkpoint
     - Zero-shot voice cloning from a reference WAV plus its transcript; no
       designed-voice mode, so a voice sample and transcript are required
     - Does NOT honour stress marks: the maintainers say Qwen3-TTS was trained

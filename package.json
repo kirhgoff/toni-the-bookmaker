@@ -3,14 +3,29 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "bin": { "toni-record": "src/record/index.ts" },
+  "bin": {
+    "toni-record": "src/record/index.ts"
+  },
   "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
     "record": "bun src/record/index.ts",
-    "typecheck": "bunx tsc --noEmit",
-    "test": "bun test src/record"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "typescript": "^5"
+  },
+  "dependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "next": "^16.4.0",
+    "postcss": "^8.5.29",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.3"
   }
 }

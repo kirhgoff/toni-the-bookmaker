@@ -4,6 +4,24 @@ Toni turns a text file or PDF into an audiobook. Feed it a book, optionally a
 short sample of a voice, and it reads the whole thing out loud, cuts it into
 chapters, and hands you back one finished audio file.
 
+## Web interface
+
+The web studio is a small self-hosted Next.js app. It uses the existing recording driver and requires Bun, `uv`, `ffmpeg`, and Poppler's `pdftotext` on the web server. Remote render hosts must be configured in the local-only `hosts.local.json`; copy `hosts.example.json` as a starting point and configure SSH access and a compatible render image.
+
+```bash
+bun install
+cp .env.example .env.local
+cp hosts.example.json hosts.local.json  # edit for your own render host
+uv sync --extra omni
+HOSTNAME=0.0.0.0 bun run dev
+```
+
+Open `http://<server-address>:3000`. Set `WEB_AUTH_TOKEN` in `.env.local` before exposing the app to other devices, and enter that token in the page. Keep the app on a trusted local network; do not publish it directly to the internet. Set `AUDIOBOOK_WEB_DATA` and `AUDIOBOOK_LIBRARY` to persistent storage locations as needed. These directories contain uploads, job metadata and finished books and should be backed up and access-restricted.
+
+For a production server, run `bun run build` and then `HOSTNAME=0.0.0.0 bun run start`; set `PORT` and the values in `.env.local` for the deployment. Install Poppler (`pdftotext`) on the web server as well as the tools listed in the CLI setup.
+
+The web interface accepts UTF-8 text and selectable-text PDFs. Scanned PDFs need OCR before upload. Pocket TTS includes a preview of its Alba sample; other models use their supported built-in voice or an uploaded voice recording. Qwen and ESpeech require an uploaded sample. A render uses the configured remote host and the selected model's prebuilt container image.
+
 ## Quick start
 
 You'll need a few command-line tools first. On macOS, with [Homebrew](https://brew.sh) installed:

@@ -48,5 +48,13 @@ hosts.local.json
 *.log
 manifest.json
 
+# Web app environment and generated data
+.env*
+!.env.example
+.toni-web/
+audiobooks/
+.next/
+
 # Node / bun
 node_modules/
+tsconfig.tsbuildinfo

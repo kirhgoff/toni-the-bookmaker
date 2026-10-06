@@ -31,7 +31,7 @@ Everything lands in `<output-dir>/<name>/` (default `~/Downloads/audiobooks`). T
 source.txt                cleaned text actually narrated
 voice_ref.wav              trimmed voice reference
 voice_ref.txt              its transcript
-2026-01-15-1430-omni-tomhat/   one run
+2026-01-15-1430-omni-render-host/   one run
   <name>.m4b                finished audiobook, with chapters
   render.log                progress and errors
   work/                      resumable chunk state (deletable when done)
@@ -88,7 +88,7 @@ Decode and loudness are checked automatically after every render. For chapters, 
 
 ## Expectations
 
-Chunk cost on an RTX 3080 Ti is roughly a third of Apple Silicon (RTF 0.112 vs 0.38). A 190k-word novel is ~7,000 chunks: ~2 hours remote, ~6 hours locally, producing ~18 hours of audio at ~520 MB. Russian chunks run slower than English (~9s each locally at 2 workers). CPU-only is 8× slower again, so never render on a CPU server.
+Render time varies widely with model, language, GPU memory, and worker count. A full-length book may take hours and produce hundreds of megabytes of audio; CPU-only rendering is substantially slower than a compatible GPU host. Keep workers conservative when GPU memory is limited.
 
 ## Chapters
 
@@ -114,4 +114,4 @@ Format, bitrate and chapters are decided at concatenation. Delete the finished `
   podman build --build-arg EXTRA=<model> -t toni:<model> .
   ```
 - **Crash signature:** `Cannot re-initialize CUDA in forked subprocess` in `render.log` with `ForkPoolWorker` respawning. The worker pool must use the spawn start method (it does since commit 1cdeb53); an image built before that fix loops forever. Kill the local `record/index.ts` process, `podman rm -f toni-<name>` on the host, rebuild, re-run.
-- **Stalled renders:** on the tomhat GPU host (12 GB VRAM, Windows/WSL) two workers once filled VRAM to 11.5 GB and generation silently slowed to ~760 s/chunk — WSL spills VRAM into shared system memory instead of failing. One worker (`-w 1`) ran at ~1.3 s/chunk. Signature: progress stuck, GPU at 100% util, VRAM near full. Fix: kill the local `record/index.ts` process, `podman rm -f toni-<name>` on the host (via the host's configured shell, e.g. `ssh ... 'wsl -d Ubuntu -- bash -s' <<'EOF'`), re-run with `-w 1` — completed chunks are kept. Also: if the host sleeps or reboots, SSH drops ("Operation timed out") and the local driver exits; re-run the identical command to resume.
+- **Stalled renders:** if progress stops while the GPU remains saturated, available VRAM may be exhausted and the host may be paging GPU memory. Stop the render container using the host's configured container runtime, then re-run with `-w 1`; completed chunks are kept. If the host becomes unreachable, the driver exits and the identical command can resume the render.

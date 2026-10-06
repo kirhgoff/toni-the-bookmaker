@@ -14,7 +14,7 @@ class PocketTTSEngine(TTSEngine):
     Pocket TTS is a lightweight model optimized for CPU execution.
     - 100M parameters
     - Runs on CPU (no GPU required)
-    - ~6x real-time on MacBook Air M4
+    - Designed for lightweight CPU execution
     - Supports voice cloning
     """
 
