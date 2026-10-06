@@ -1,8 +1,8 @@
 # Open-weight TTS for long-form audiobook narration — research, 2026-09-18
 
 Scope: candidates for a fourth `toni` engine, judged on Russian + English long-form narration with
-voice cloning, on Apple Silicon (MPS) and an RTX 3080 Ti 12 GB. Every factual claim carries a URL.
-Where a figure is not published, this document says so rather than estimating.
+voice cloning and compatibility across CPU and GPU acceleration backends. Every factual claim carries
+a URL. Where a figure is not published, this document says so rather than estimating.
 
 ---
 
@@ -55,13 +55,13 @@ Serious candidates only. "—" means the figure is not stated in any primary sou
 | **Fun-CosyVoice3-0.5B-2512** | **Apache-2.0** ✅ | 0.5B | 9 langs incl. **ru**; CV3-Eval ru WER 6.77→3.79 (DiffRO) | ref ≤30 s (+text unless cross-lingual) | — | 150 ms streaming | partial; MLX ports exist | **repetition regression vs CosyVoice2** |
 | **VoxCPM2** | **Apache-2.0** ✅ | 2B | **ru WER 5.21%** (CV3-eval) | short clip | — | — | ✅ | — |
 | **ZONOS2** | MIT (repo) / Apache-2.0 (site) — conflicting | 8B total / ~900M active | 33+ langs; **ru = Tier 2** | ECAPA-TDNN embedding | **unknown — issue #8 unanswered** | "4× prior model" | ❌ Linux+CUDA | ❌ **600 tokens / ~1 min cap**; audible drift at joins |
-| **Fish OpenAudio S1-mini** | CC-BY-NC-SA ❌, gated | 0.5B | 13 langs incl. ru | 10–30 s | fits 12 GB | 500%+ realtime on 3080 Ti | ❌ Linux/WSL | — |
+| **Fish OpenAudio S1-mini** | CC-BY-NC-SA ❌, gated | 0.5B | 13 langs incl. ru | 10–30 s | fits mid-range GPUs | — | ❌ Linux | — |
 | **Fish S2-Pro** | Fish Research Licence ❌ | 4.56B | 80+ langs; **ru = Tier 2** | 10–30 s | ❌ **24 GB** | RTF 0.195 (H200) | ❌ | — |
 | **Higgs Audio V3** | **Research / non-commercial** ❌ (creator grant) | ~4B | 102 langs; ru in sub-5 WER tier | zero-shot, ref text helps | 8-bit ≈6–7 GB; bf16 ≈11 GB | RTF 0.147 (H100) | MLX port only | 8,192-token context |
-| **IndexTTS-2.5** | bilibili MULA ✅* | ~0.8B | zh/en/ja/es/ar — **no ru** | 1 ref clip, no text | ✅ ~6 GB | RTF 0.207 (4090); ~90% realtime on 3080 Ti | unofficial PRs | most stable per 3rd-party audiobook tool |
+| **IndexTTS-2.5** | bilibili MULA ✅* | ~0.8B | zh/en/ja/es/ar — **no ru** | 1 ref clip, no text | ✅ ~6 GB | RTF 0.207 (4090) | unofficial PRs | most stable per 3rd-party audiobook tool |
 | **VibeVoice 1.5B** | MIT + research-only card | ~3B actual | **en/zh only — ru unsupported** | ref audio | — | — | — | ✅ 64K ctx ≈ 90 min single pass |
 | **Kokoro 82M** | **Apache-2.0** ✅ | 82M | 9 langs — **no ru** | ❌ fixed voice packs | CPU-capable | 35–100× realtime | ✅ w/ fallback | 510-token cap, **silent truncation** |
-| **Kyutai Pocket TTS** (current) | MIT / CC-BY-4.0 (conflicting) | 100M | 6 langs — **no ru** | ✅ wav, ungated | CPU | ~6× realtime, M4 CPU | ✅ | ✅ streaming, "infinitely long" |
+| **Kyutai Pocket TTS** (current) | MIT / CC-BY-4.0 (conflicting) | 100M | 6 langs — **no ru** | ✅ wav, ungated | CPU | — | ✅ | ✅ streaming, "infinitely long" |
 | **Kani TTS 2** (current) | **LFM 1.0** (free under $10M rev.) | 400M | per-lang ckpts; **no ru** | 10–20 s | ~3 GB | RTF ~0.2 (5080) | v1 MLX only | ~40 s / ~3000 tokens |
 | **XTTS v2** | **CPML** ❌ non-commercial | ~467M (unverified) | 17 langs incl. ru | ref ~6 s | ~2 GB fp16 | — | ❌ wontfix hang | 250-char warning, 400-token assert; end-of-sentence hallucination |
 
@@ -89,8 +89,8 @@ Benchmarks ([paper](https://arxiv.org/pdf/2604.00688)): LibriSpeech-PC SIM-o **0
 Russian: MiniMax-Multilingual-24 **WER 2.233 / SIM-o 0.783**; FLEURS-102 Russian **CER 1.10%** vs
 ground truth 1.68% ([paper](https://arxiv.org/html/2604.00688v3)).
 
-The README pins `torch==2.8.0+cu128` (CUDA) and `torch==2.8.0` (Apple Silicon) — exactly the current
-environment — but PyPI metadata only says `torch>=2.4`, and
+The README pins `torch==2.8.0+cu128` (CUDA) and `torch==2.8.0` (Apple Silicon), while PyPI metadata
+only says `torch>=2.4`, and
 [#267](https://github.com/k2-fsa/OmniVoice/issues/267) reports resolvers pulling torch 2.14/2.11, so
 keep the explicit pin. MPS is officially supported via `device_map="mps"`. VRAM is not published;
 third-party measurement puts generation at ~3.1–3.4 GB
@@ -270,8 +270,8 @@ But S1-mini is CC-BY-NC-SA and gated, S2-Pro is under a research-only licence ne
 WER/CER tier, 24 kHz, macro-avg WER/CER 3.61 ([HF](https://huggingface.co/bosonai/higgs-tts-3-4b),
 [LMSYS](https://www.lmsys.org/blog/2026-06-04-higgs-audio-v3-tts/)). Licence is **research and
 non-commercial** with a Creator Use Grant that permits monetised creative output with attribution —
-adequate for personal audiobooks, not for a product. Needs 8-bit to be comfortable on 12 GB (bf16
-≈11 GB). No pip package; served via SGLang-Omni. Higgs **v2** has no Russian and needs 24 GB.
+so it is unsuitable for commercial deployments. Needs 8-bit quantization to fit more modest GPU memory
+(bf16 ≈11 GB). No pip package; served via SGLang-Omni. Higgs **v2** has no Russian and needs 24 GB.
 
 **IndexTTS-2.5** (2026-08-10) is technically the best fit — ~6 GB VRAM, pins `torch==2.8.*`,
 RTF 0.207 on a 4090, and is singled out by a third-party audiobook tool as reliable enough to skip

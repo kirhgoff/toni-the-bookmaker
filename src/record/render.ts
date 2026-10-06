@@ -15,6 +15,7 @@ export interface RenderOptions {
   language: string;
   model: string;
   chapterPattern?: string;
+  voiceInstruction?: string;
   voiceRef?: string;
   refText?: string;
 }
@@ -41,6 +42,7 @@ export async function renderLocal(o: RenderOptions): Promise<void> {
     TONI_LANGUAGE: o.language,
   };
   if (o.refText) env.TONI_REF_TEXT = o.refText;
+  if (o.voiceInstruction) env.TONI_OMNI_INSTRUCT = o.voiceInstruction;
 
   const proc = Bun.spawn(
     ["uv", "run", "--project", o.projectDir, "--extra", o.model,
@@ -94,6 +96,7 @@ export async function renderRemote(hostName: string, o: RenderOptions): Promise<
   const dockerEnv = [
     "-e", `TONI_LANGUAGE=${shellQuote(o.language)}`,
     ...(o.refText ? ["-e", `TONI_REF_TEXT=${shellQuote(o.refText)}`] : []),
+    ...(o.voiceInstruction ? ["-e", `TONI_OMNI_INSTRUCT=${shellQuote(o.voiceInstruction)}`] : []),
   ].join(" ");
 
   const script = [

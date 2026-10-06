@@ -14,6 +14,7 @@ const USAGE = `Record an audiobook from a text or PDF file.
 
   -i, --input INPUT     Source .txt or .pdf (required)
   -v, --voice VOICE     Voice sample to clone. Omit for a designed voice.
+      --voice-instruction TEXT  Describe a designed OmniVoice narrator.
   -n, --name NAME       Output folder name (default: input filename stem)
   -t, --tag TAG         Run folder suffix explaining the run (default: <model>-<host or local>)
   -o, --output-dir DIR  Library folder that holds all books (default: $AUDIOBOOK_LIBRARY or ~/Downloads/audiobooks)
@@ -78,9 +79,10 @@ async function main(): Promise<void> {
     options: {
       input: { type: "string", short: "i" },
       voice: { type: "string", short: "v" },
+      "voice-instruction": { type: "string" },
       name: { type: "string", short: "n" },
       tag: { type: "string", short: "t" },
-      outputDir: { type: "string", short: "o" },
+      "output-dir": { type: "string", short: "o" },
       workers: { type: "string", short: "w", default: "2" },
       bitrate: { type: "string", short: "b", default: "64k" },
       pause: { type: "string", short: "p", default: "500" },
@@ -97,7 +99,7 @@ async function main(): Promise<void> {
 
   if (values.help || !values.input) {
     console.log(USAGE);
-    process.exit(values.input ? 0 : 1);
+    process.exit(values.help || values.input ? 0 : 1);
   }
   if (!["m4b", "mp3"].includes(values.format!)) {
     throw new Error(`Unsupported format: ${values.format} (use m4b or mp3)`);
@@ -109,7 +111,7 @@ async function main(): Promise<void> {
   if (voice && !(await Bun.file(voice).exists())) throw new Error(`Voice sample not found: ${voice}`);
 
   const name = values.name ?? basename(input).replace(/\.[^.]+$/, "");
-  const library = values.outputDir ?? process.env.AUDIOBOOK_LIBRARY ?? `${process.env.HOME}/Downloads/audiobooks`;
+  const library = values["output-dir"] ?? process.env.AUDIOBOOK_LIBRARY ?? `${process.env.HOME}/Downloads/audiobooks`;
   const bookDir = `${library}/${name}`;
   await mkdir(bookDir, { recursive: true });
 
@@ -164,6 +166,7 @@ async function main(): Promise<void> {
     language: values.language!,
     model: values.model!,
     ...(values.chapters ? { chapterPattern: values.chapters } : {}),
+    ...(values["voice-instruction"] ? { voiceInstruction: values["voice-instruction"] } : {}),
     ...(voice ? { voiceRef } : {}),
     ...((await Bun.file(refTextPath).exists())
       ? { refText: await Bun.file(refTextPath).text() }
