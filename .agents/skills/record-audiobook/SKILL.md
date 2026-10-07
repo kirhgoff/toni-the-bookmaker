@@ -31,7 +31,7 @@ Everything lands in `<output-dir>/<name>/` (default `~/Downloads/audiobooks`). T
 source.txt                cleaned text actually narrated
 voice_ref.wav              trimmed voice reference
 voice_ref.txt              its transcript
-2026-01-15-1430-omni-tomhat/   one run
+2026-01-15-1430-omni-localbrains/   one run
   <name>.m4b                finished audiobook, with chapters
   render.log                progress and errors
   work/                      resumable chunk state (deletable when done)
@@ -114,4 +114,4 @@ Format, bitrate and chapters are decided at concatenation. Delete the finished `
   podman build --build-arg EXTRA=<model> -t toni:<model> .
   ```
 - **Crash signature:** `Cannot re-initialize CUDA in forked subprocess` in `render.log` with `ForkPoolWorker` respawning. The worker pool must use the spawn start method (it does since commit 1cdeb53); an image built before that fix loops forever. Kill the local `record/index.ts` process, `podman rm -f toni-<name>` on the host, rebuild, re-run.
-- **Stalled renders:** on the tomhat GPU host (12 GB VRAM, Windows/WSL) two workers once filled VRAM to 11.5 GB and generation silently slowed to ~760 s/chunk — WSL spills VRAM into shared system memory instead of failing. One worker (`-w 1`) ran at ~1.3 s/chunk. Signature: progress stuck, GPU at 100% util, VRAM near full. Fix: kill the local `record/index.ts` process, `podman rm -f toni-<name>` on the host (via the host's configured shell, e.g. `ssh ... 'wsl -d Ubuntu -- bash -s' <<'EOF'`), re-run with `-w 1` — completed chunks are kept. Also: if the host sleeps or reboots, SSH drops ("Operation timed out") and the local driver exits; re-run the identical command to resume.
+- **Stalled renders:** on the localbrains host (12 GB VRAM, Windows/WSL; box operations live in `~/Projects/localbrains`) two workers once filled VRAM to 11.5 GB and generation silently slowed to ~760 s/chunk — WSL spills VRAM into shared system memory instead of failing. One worker (`-w 1`) ran at ~1.3 s/chunk. Signature: progress stuck, GPU at 100% util, VRAM near full. Fix: kill the local `record/index.ts` process, `podman rm -f toni-<name>` on the host (via the host's configured shell, e.g. `ssh ... 'wsl -d Ubuntu -- bash -s' <<'EOF'`), re-run with `-w 1` — completed chunks are kept. Also: if the host sleeps or reboots, SSH drops ("Operation timed out") and the local driver exits; re-run the identical command to resume.
