@@ -22,6 +22,7 @@ AUDIO_ENV = (
     "TONI_OMNI_NUM_STEP",
     "TONI_OMNI_SPEED",
     "TONI_NORMALIZE",
+    "TONI_PAUSE_MS",
     "TONI_QWEN_MODEL",
 )
 
@@ -444,14 +445,15 @@ class WorkManager:
 
             self.save_manifest()
 
-    def chunk_key(self, text: str) -> str:
+    def chunk_key(self, chunk_id: str, text: str) -> str:
+        speed = self.get_chunk_speed(chunk_id)
         return hashlib.sha1(
-            f"{self.load_manifest().fingerprint}\0{text}".encode("utf-8")
+            f"{self.load_manifest().fingerprint}\0{speed}\0{text}".encode("utf-8")
         ).hexdigest()
 
-    def cache_path(self, text: str) -> Path | None:
+    def cache_path(self, chunk_id: str, text: str) -> Path | None:
         cache_dir = self.load_manifest().cache_dir
-        return Path(cache_dir) / f"{self.chunk_key(text)}.wav" if cache_dir else None
+        return Path(cache_dir) / f"{self.chunk_key(chunk_id, text)}.wav" if cache_dir else None
 
     def _link(self, src: Path, dst: Path) -> None:
         dst.unlink(missing_ok=True)
@@ -461,33 +463,41 @@ class WorkManager:
             shutil.copy2(src, dst)
 
     def publish_audio(self, chunk_id: str, text: str) -> None:
-        target = self.cache_path(text)
+        target = self.cache_path(chunk_id, text)
         if target is None:
             return
-        key = self.chunk_key(text)
+        key = self.chunk_key(chunk_id, text)
         target.parent.mkdir(parents=True, exist_ok=True)
         self._link(self.get_chunk_audio_path(chunk_id), target)
         with self._locked_manifest() as manifest:
             manifest.chunks.setdefault(str(chunk_id), {})["key"] = key
             self.save_manifest()
 
+    def publish_qc(self, chunk_id: str, text: str, qc: dict) -> None:
+        target = self.cache_path(chunk_id, text)
+        if target is not None and target.exists():
+            target.with_suffix(".qc.json").write_text(json.dumps(qc))
+
     def restore_from_cache(self, chunk_id: str, text: str) -> bool:
-        source = self.cache_path(text)
+        source = self.cache_path(chunk_id, text)
         if source is None or not wav_is_valid(source):
             return False
-        key = self.chunk_key(text)
+        key = self.chunk_key(chunk_id, text)
         self._link(source, self.get_chunk_audio_path(chunk_id))
+        qc_path = source.with_suffix(".qc.json")
         with self._locked_manifest() as manifest:
-            manifest.chunks.setdefault(str(chunk_id), {}).update(
-                status="completed", key=key, reused=True
-            )
+            chunk = manifest.chunks.setdefault(str(chunk_id), {})
+            chunk.update(status="completed", key=key, reused=True)
+            if qc_path.exists():
+                chunk["qc"] = json.loads(qc_path.read_text())
             self.save_manifest()
         return True
 
-    def evict_cache(self, text: str) -> None:
-        target = self.cache_path(text)
+    def evict_cache(self, chunk_id: str, text: str) -> None:
+        target = self.cache_path(chunk_id, text)
         if target is not None:
             target.unlink(missing_ok=True)
+            target.with_suffix(".qc.json").unlink(missing_ok=True)
 
     def reset_invalid_audio(self) -> list[str]:
         bad = [

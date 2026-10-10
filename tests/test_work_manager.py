@@ -87,5 +87,5 @@ def test_old_manifest_loads(tmp_path: Path) -> None:
 
     manifest = work.load_manifest()
     assert manifest.seed == 0 and manifest.fingerprint == ""
-    assert work.cache_path("x") is None
-    assert len(work.chunk_key("x")) == 40
+    assert work.cache_path("0", "x") is None
+    assert len(work.chunk_key("0", "x")) == 40

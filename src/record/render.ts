@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 
-import { gpuArgsOf, resolveHost, runtimeOf } from "./hosts.ts";
+import { gpuArgsOf, resolveHost, runtimeOf, type RenderHost } from "./hosts.ts";
 import { log, runOrThrow, shellQuote } from "./shell.ts";
 
 export interface RenderOptions {
@@ -23,7 +23,12 @@ export interface RenderOptions {
   refText?: string;
 }
 
-export function cliArgs(o: RenderOptions, inDir: string, outDir: string): string[] {
+export function cliArgs(
+  o: RenderOptions,
+  inDir: string,
+  outDir: string,
+  cacheDir = `${inDir}/cache`,
+): string[] {
   const args = [
     "-i", `${inDir}/source.txt`,
     "-o", `${outDir}/${o.name}.${o.format}`,
@@ -32,7 +37,7 @@ export function cliArgs(o: RenderOptions, inDir: string, outDir: string): string
     "--chunk-pause", String(o.pauseMs),
     "--workers", String(o.workers),
     "--work-dir", `${outDir}/work`,
-    "--cache-dir", `${inDir}/cache`,
+    "--cache-dir", cacheDir,
   ];
   if (o.voiceRef) args.push("-v", `${inDir}/voice_ref.wav`);
   if (o.lexicon) args.push("--lexicon", `${inDir}/lexicon.txt`);
@@ -71,14 +76,37 @@ export async function renderLocal(o: RenderOptions): Promise<void> {
   if (code !== 0) throw new Error(`render failed (exit ${code})`);
 }
 
+export function remoteScript(o: RenderOptions, host: RenderHost, jobDir: string, cacheDir: string): string {
+  const image = host.image ?? `toni:${o.model}`;
+  const runtime = runtimeOf(host);
+  const gpuArgs = gpuArgsOf(host).join(" ");
+  const envExports = Object.entries(host.env ?? {})
+    .map(([k, v]) => `export ${k}=${v}`).join("\n");
+  const dockerEnv = dockerEnvFlags(o).join(" ");
+
+  return [
+    "set -e",
+    envExports,
+    `WORKDIR=${shellQuote(jobDir)}`,
+    "exec 9>/tmp/toni-gpu.lock",
+    'flock -n 9 || { echo "GPU is busy: another render holds the lease" >&2; exit 75; }',
+    host.leaseAcquire ?? "",
+    // A container outlives the ssh session that started it, so name it: kill
+    // any leftover from an interrupted run, and take it down on exit.
+    `CONTAINER=toni-${o.name}`,
+    `${runtime} rm -f "$CONTAINER" >/dev/null 2>&1 || true`,
+    `trap '${runtime} rm -f "$CONTAINER" >/dev/null 2>&1' EXIT INT TERM HUP`,
+    `${runtime} run --rm --name "$CONTAINER" ${gpuArgs} -v "$WORKDIR:/books" ` +
+      `-v ${shellQuote(cacheDir)}:/cache -v toni-models:/models ${dockerEnv} ` +
+      `${image} ${cliArgs(o, "/books", "/books", "/cache").map(shellQuote).join(" ")}`,
+  ].filter(Boolean).join("\n");
+}
+
 export async function renderRemote(hostName: string, o: RenderOptions): Promise<void> {
   const host = resolveHost(hostName);
   const key = `${process.env.HOME}/${host.identity}`;
   const sshCmd = `ssh -i ${key} -o ConnectTimeout=10`;
   const ssh = ["ssh", "-i", key, "-o", "ConnectTimeout=10", host.ssh];
-  const image = host.image ?? `toni:${o.model}`;
-  const runtime = runtimeOf(host);
-  const gpuArgs = gpuArgsOf(host).join(" ");
 
   const remoteSh = async (script: string) => {
     const proc = Bun.spawn([...ssh, host.shell], {
@@ -94,7 +122,9 @@ export async function renderRemote(hostName: string, o: RenderOptions): Promise<
   if (homeCode !== 0 || !remoteHome.startsWith("/")) {
     throw new Error(`could not resolve remote home on ${hostName} (got "${remoteHome}")`);
   }
-  const jobDir = `${remoteHome}/${host.workdir}/${o.name}/${basename(o.runDir)}`;
+  const bookDir = `${remoteHome}/${host.workdir}/${o.name}`;
+  const jobDir = `${bookDir}/${basename(o.runDir)}`;
+  const cacheDir = `${bookDir}/cache`;
 
   const rsync = (from: string, to: string) => {
     const cmd = ["rsync", "-a", "--partial", "--inplace", "-e", sshCmd];
@@ -105,31 +135,12 @@ export async function renderRemote(hostName: string, o: RenderOptions): Promise<
   log(`Rendering on ${hostName} with ${o.workers} workers`);
 
   log("  uploading inputs");
-  await remoteSh(`mkdir -p ${shellQuote(jobDir)}`);
+  await remoteSh(`mkdir -p ${shellQuote(jobDir)} ${shellQuote(cacheDir)}`);
   await rsync(`${o.bookDir}/source.txt`, `${host.ssh}:${jobDir}/source.txt`);
   if (o.voiceRef) await rsync(o.voiceRef, `${host.ssh}:${jobDir}/voice_ref.wav`);
   if (o.lexicon) await rsync(o.lexicon, `${host.ssh}:${jobDir}/lexicon.txt`);
 
-  const envExports = Object.entries(host.env ?? {})
-    .map(([k, v]) => `export ${k}=${v}`).join("\n");
-  const dockerEnv = dockerEnvFlags(o).join(" ");
-
-  const script = [
-    "set -e",
-    envExports,
-    `WORKDIR=${shellQuote(jobDir)}`,
-    "exec 9>/tmp/toni-gpu.lock",
-    'flock -n 9 || { echo "GPU is busy: another render holds the lease" >&2; exit 75; }',
-    host.leaseAcquire ?? "",
-    // A container outlives the ssh session that started it, so name it: kill
-    // any leftover from an interrupted run, and take it down on exit.
-    `CONTAINER=toni-${o.name}`,
-    `${runtime} rm -f "$CONTAINER" >/dev/null 2>&1 || true`,
-    `trap '${runtime} rm -f "$CONTAINER" >/dev/null 2>&1' EXIT INT TERM HUP`,
-    `${runtime} run --rm --name "$CONTAINER" ${gpuArgs} -v "$WORKDIR:/books" ` +
-      `-v toni-models:/models ${dockerEnv} ` +
-      `${image} ${cliArgs(o, "/books", "/books").map(shellQuote).join(" ")}`,
-  ].filter(Boolean).join("\n");
+  const script = remoteScript(o, host, jobDir, cacheDir);
 
   // Ship the script as a file rather than on stdin: commands inside it
   // (docker, ollama) read stdin themselves and would swallow the remainder.

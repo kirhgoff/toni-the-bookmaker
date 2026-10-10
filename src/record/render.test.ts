@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { cliArgs, dockerEnvFlags, type RenderOptions } from "./render.ts";
+import { cliArgs, dockerEnvFlags, remoteScript, type RenderOptions } from "./render.ts";
 
 const OPTIONS: RenderOptions = {
   projectDir: "/p", bookDir: "/b", runDir: "/b/run", name: "book", format: "m4b",
@@ -32,4 +32,12 @@ test("passes --no-qc only when QC is off", () => {
 test("shares one chunk cache per book", () => {
   const args = cliArgs(OPTIONS, "/books", "/out");
   expect(args.slice(args.indexOf("--cache-dir"))[1]).toBe("/books/cache");
+});
+
+test("remote renders mount a per-book cache that outlives the run folder", () => {
+  const host = { ssh: "u@h", identity: ".ssh/k", shell: "bash -s", workdir: "books" };
+  const script = remoteScript(OPTIONS, host, "/home/u/books/book/2026-01-01-0000-omni", "/home/u/books/book/cache");
+  expect(script).toContain("-v '/home/u/books/book/cache':/cache");
+  expect(script).toContain("'--cache-dir' '/cache'");
+  expect(script).not.toContain("/books/cache");
 });

@@ -277,19 +277,23 @@ def qc_pass(
         qc = {"wer": round(wer, 3), "ratio": round(ratio, 2), "attempts": retries, "verdict": result}
         checked += 1
         retry = result == "fail" and retries < qc_retries
+        subs = split_chunk(text) if result == "fail" and not retry and cid.count("_") < max_retries else []
+        splitting = len(subs) > 1
         work.set_chunk_status(cid, "pending" if retry else "completed", qc=qc)
-        if result == "pass":
-            continue
-        click.echo(f"QC fail {cid}: wer={wer:.2f} ratio={ratio:.2f} attempt={retries}")
-        work.evict_cache(text)
+        if retry or splitting:
+            work.evict_cache(cid, text)
+        else:
+            work.publish_qc(cid, text, qc)
+        if result == "fail":
+            click.echo(f"QC fail {cid}: wer={wer:.2f} ratio={ratio:.2f} attempt={retries}")
         if retry:
             work.increment_retries(cid)
             flipped += 1
-        elif cid.count("_") < max_retries and len(subs := split_chunk(text)) > 1:
+        elif splitting:
             for i, sub in enumerate(subs):
                 work.add_sub_chunk(cid, f"{cid}_{i}", sub)
             flipped += 1
-        else:
+        elif result == "fail":
             gave_up += 1
     return checked, flipped, gave_up
 
