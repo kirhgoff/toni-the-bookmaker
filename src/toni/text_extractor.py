@@ -199,8 +199,9 @@ def _link_text(link) -> str:
     return " ".join("".join(link.itertext()).split())
 
 
-def _navigation(archive: zipfile.ZipFile, items: dict, spine_toc_id) -> tuple[dict[str, str], set[str]]:
+def _navigation(archive: zipfile.ZipFile, items: dict, spine_toc_id) -> tuple[dict[str, str], set[str], set[str]]:
     titles: dict[str, str] = {}
+    listed: set[str] = set()
     front_matter: set[str] = set()
     nav = next((i for i in items.values() if "nav" in i["properties"]), None)
     ncx = items.get(spine_toc_id) if spine_toc_id else None
@@ -214,10 +215,13 @@ def _navigation(archive: zipfile.ZipFile, items: dict, spine_toc_id) -> tuple[di
             for link in element.iter():
                 if _local(link.tag) != "a" or not link.get("href"):
                     continue
-                target = _resolve(base, link.get("href"))
+                href = link.get("href")
+                target = _resolve(base, href)
                 if "toc" in kinds:
-                    titles.setdefault(target, _link_text(link))
-                if "landmarks" in kinds and _epub_types(link) & FRONT_MATTER_TYPES:
+                    listed.add(target)
+                    if "#" not in href:
+                        titles.setdefault(target, _link_text(link))
+                if "landmarks" in kinds and "#" not in href and _epub_types(link) & FRONT_MATTER_TYPES:
                     front_matter.add(target)
     elif ncx:
         base = posixpath.dirname(ncx["path"])
@@ -227,8 +231,11 @@ def _navigation(archive: zipfile.ZipFile, items: dict, spine_toc_id) -> tuple[di
             label = next((e for e in point.iter() if _local(e.tag) == "text"), None)
             content = next((e for e in point.iter() if _local(e.tag) == "content"), None)
             if label is not None and content is not None and content.get("src"):
-                titles.setdefault(_resolve(base, content.get("src")), _link_text(label))
-    return titles, front_matter
+                src = content.get("src")
+                listed.add(_resolve(base, src))
+                if "#" not in src:
+                    titles.setdefault(_resolve(base, src), _link_text(label))
+    return titles, listed, front_matter
 
 
 def _guide_front_matter(root, opf_dir: str) -> set[str]:
@@ -237,6 +244,7 @@ def _guide_front_matter(root, opf_dir: str) -> set[str]:
         for reference in root.iter()
         if _local(reference.tag) == "reference"
         and reference.get("href")
+        and "#" not in reference.get("href")
         and reference.get("type") in FRONT_MATTER_TYPES
     }
 
@@ -297,9 +305,9 @@ def extract_epub(file_path: Path) -> tuple[str, list[str]]:
             for ref in spine
             if _local(ref.tag) == "itemref" and ref.get("idref") in items
         ]
-        titles, landmark_skipped = _navigation(archive, items, spine.get("toc"))
+        titles, listed, landmark_skipped = _navigation(archive, items, spine.get("toc"))
         skipped = landmark_skipped | _guide_front_matter(opf, opf_dir)
-        first_listed = next((i for i, path in enumerate(spine_paths) if path in titles), len(spine_paths))
+        first_listed = next((i for i, path in enumerate(spine_paths) if path in listed), len(spine_paths))
         present = set(archive.namelist())
 
         sections: list[str] = []
@@ -315,19 +323,17 @@ def extract_epub(file_path: Path) -> tuple[str, list[str]]:
             if path in skipped or parser.epub_types & FRONT_MATTER_TYPES:
                 continue
             words = sum(len(text.split()) for _, text in blocks)
-            if index < first_listed and titles and words <= MAX_UNTAGGED_FRONT_MATTER_WORDS:
+            if index < first_listed and listed and words <= MAX_UNTAGGED_FRONT_MATTER_WORDS:
                 continue
             if not blocks:
                 continue
-            if blocks[0][0] in HEADING_TAGS:
-                title = blocks[0][1]
-                blocks = blocks[1:]
-            else:
-                title = titles.get(path, "")
             lines = [text for _, text in blocks]
-            if title:
-                section_titles.append(title)
-                lines.insert(0, title)
+            headings = [text for tag, text in blocks if tag in HEADING_TAGS]
+            if headings:
+                section_titles.extend(headings)
+            elif titles.get(path):
+                section_titles.append(titles[path])
+                lines.insert(0, titles[path])
             sections.append("\n\n".join(lines))
 
     return "\n\n".join(sections), section_titles

@@ -109,7 +109,7 @@ stress-marked.
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `-i, --input` | required | Source `.txt`, `.pdf` or `.epub` (spine order; pages marked cover, contents, title or copyright in the EPUB's landmarks or guide are skipped, as are short untagged pages before the first contents entry; the EPUB's own section titles become the chapters, narrated as written) |
+| `-i, --input` | required | Source `.txt`, `.pdf` or `.epub` (spine order; pages marked cover, contents, title or copyright in the EPUB's landmarks or guide are skipped, as are short untagged pages before the first contents entry; the EPUB's own headings (h1-h3, or the contents entry for a file without one) become the chapters, narrated as written) |
 | `-v, --voice` | none | Voice sample to clone |
 | `-n, --name` | input filename | Output folder name |
 | `-t, --tag` | engine and host | Suffix for the run folder, e.g. `-t first-try` |

@@ -1,3 +1,4 @@
+import re
 import subprocess
 import sys
 import zipfile
@@ -69,6 +70,100 @@ def test_epub_follows_spine_and_drops_front_matter(tmp_path):
     assert "Short untagged note" in text
     assert text.startswith("Chapter One\n\nCafé & tea.")
     assert text.index("Chapter One") < text.index("Chapter Two")
+
+
+def single_file_epub(tmp_path: Path, nav_links: str, body: str, landmarks: str = "", spine_extra: str = "") -> Path:
+    opf = (
+        '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0"><manifest>'
+        '<item id="nav" href="nav.xhtml" properties="nav" media-type="application/xhtml+xml"/>'
+        '<item id="b" href="book.xhtml" media-type="application/xhtml+xml"/>'
+        '</manifest><spine><itemref idref="b"/></spine></package>'
+    )
+    nav = (
+        '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body>'
+        f'<nav epub:type="toc"><ol>{nav_links}</ol></nav>'
+        f'<nav epub:type="landmarks"><ol>{landmarks}</ol></nav></body></html>'
+    )
+    path = tmp_path / "single.epub"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("META-INF/container.xml", CONTAINER)
+        archive.writestr("OEBPS/content.opf", opf)
+        archive.writestr("OEBPS/nav.xhtml", nav)
+        archive.writestr("OEBPS/book.xhtml", page(body))
+    return path
+
+
+def test_epub_every_heading_in_a_file_is_a_chapter(tmp_path):
+    chapter = page(f"<h1>Chapter One</h1><p>{BODY}</p><h2>Interlude</h2><p>{BODY}</p>")
+    text, titles = extract_epub(build_epub(tmp_path / "book.epub", {"OEBPS/ch1.xhtml": chapter.encode()}))
+    assert titles == ["Chapter One", "Interlude", "Chapter Two"]
+    assert text.count("Interlude") == 1
+
+
+def test_epub_toc_fragment_does_not_retitle_a_split_file(tmp_path):
+    opf = re.sub(r"<spine>.*</spine>", '<spine><itemref idref="c0"/><itemref idref="c1"/></spine>', OPF, flags=re.S)
+    opf = opf.replace(
+        "</manifest>",
+        '<item id="c0" href="c0.xhtml" media-type="application/xhtml+xml"/>'
+        '<item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/></manifest>',
+    )
+    nav = NAV.replace(
+        '<li><a href="copyright.xhtml">Copyright</a></li><li><a href="ch1.xhtml">The Beginning</a></li><li><a href="ch2.xhtml">Chapter Two</a></li>',
+        '<li><a href="c0.xhtml">Chapter 1</a></li><li><a href="c0.xhtml#ch2">Chapter 2</a></li><li><a href="c1.xhtml#ch3">Chapter 3</a></li>',
+    )
+    files = {
+        "OEBPS/content.opf": opf.encode(),
+        "OEBPS/nav.xhtml": nav.encode(),
+        "OEBPS/c0.xhtml": page(f'<h1>Chapter 1</h1><p>{BODY}</p><h1 id="ch2">Chapter 2</h1><p>{BODY}</p>').encode(),
+        "OEBPS/c1.xhtml": page(f'<p>{BODY}</p><h1 id="ch3">Chapter 3</h1><p>{BODY}</p>').encode(),
+    }
+    text, titles = extract_epub(build_epub(tmp_path / "book.epub", files))
+    assert titles == ["Chapter 1", "Chapter 2", "Chapter 3"]
+    assert text.count("Chapter 3") == 1
+    assert text.index("Chapter 3") > text.index("Chapter 2") + len(BODY)
+
+
+def test_epub_fragment_only_toc_does_not_duplicate_a_title_paragraph(tmp_path):
+    epub = single_file_epub(
+        tmp_path, '<li><a href="book.xhtml#c1">Chapter 1</a></li>', f'<p class="title">Chapter 1</p><p>{BODY}</p>'
+    )
+    text, titles = extract_epub(epub)
+    assert titles == []
+    assert text.count("Chapter 1") == 1
+    assert BODY.strip() in text
+
+
+def test_epub_landmark_with_fragment_does_not_drop_the_file(tmp_path):
+    body = (
+        '<div id="contents"><p>Contents</p></div>'
+        f'<h1 id="c1">Chapter 1</h1><p>{BODY}</p><h1 id="c2">Chapter 2</h1><p>{BODY}</p>'
+    )
+    epub = single_file_epub(
+        tmp_path,
+        '<li><a href="book.xhtml#c1">Chapter 1</a></li><li><a href="book.xhtml#c2">Chapter 2</a></li>',
+        body,
+        '<li><a epub:type="toc" href="book.xhtml#contents">Contents</a></li>',
+    )
+    text, titles = extract_epub(epub)
+    assert len(text) > len(BODY)
+    assert titles == ["Chapter 1", "Chapter 2"]
+
+
+def test_epub_short_unlisted_pages_before_a_fragment_listed_chapter_are_dropped(tmp_path):
+    opf = OPF.replace("</manifest>", '<item id="b" href="book.xhtml" media-type="application/xhtml+xml"/></manifest>')
+    opf = opf.replace('<itemref idref="c1"/><itemref idref="note"/><itemref idref="c2"/>', '<itemref idref="b"/>')
+    nav = NAV.replace(
+        '<li><a href="copyright.xhtml">Copyright</a></li><li><a href="ch1.xhtml">The Beginning</a></li><li><a href="ch2.xhtml">Chapter Two</a></li>',
+        '<li><a href="book.xhtml#c1">Chapter 1</a></li>',
+    )
+    files = {
+        "OEBPS/content.opf": opf.encode(),
+        "OEBPS/nav.xhtml": nav.encode(),
+        "OEBPS/book.xhtml": page(f'<h1 id="c1">Chapter 1</h1><p>{BODY}</p>').encode(),
+    }
+    text, _ = extract_epub(build_epub(tmp_path / "book.epub", files))
+    assert "For my mother" not in text
+    assert "Chapter 1" in text
 
 
 def test_epub_titles_are_listed_and_narrated_bare(tmp_path):
