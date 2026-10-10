@@ -99,7 +99,10 @@ before a capitalised word (`Dr. Smith`) are spoken out, repeated punctuation
 is capped at three marks, and `omni` also enables its own English normaliser.
 Ambiguous tokens (`1,000`, `007`, `A12`, `1.2.3`) are left alone. Russian
 numerals are read in the nominative case regardless of context. Set
-`TONI_NORMALIZE=0` to turn all of this off.
+`TONI_NORMALIZE=0` to turn all of this off (`toni-record` forwards it to
+remote hosts). It needs a language: `toni-record` defaults to `en`, but the
+plain `toni` CLI reads it only from `TONI_LANGUAGE`, so without that variable
+nothing is normalised.
 
 ### Pacing tags
 

@@ -36,6 +36,14 @@ export function cliArgs(o: RenderOptions, inDir: string, outDir: string): string
   return args;
 }
 
+export function dockerEnvFlags(o: RenderOptions, env = process.env): string[] {
+  return [
+    "-e", `TONI_LANGUAGE=${shellQuote(o.language)}`,
+    ...(o.refText ? ["-e", `TONI_REF_TEXT=${shellQuote(o.refText)}`] : []),
+    ...(env.TONI_NORMALIZE ? ["-e", `TONI_NORMALIZE=${shellQuote(env.TONI_NORMALIZE)}`] : []),
+  ];
+}
+
 export async function renderLocal(o: RenderOptions): Promise<void> {
   log(`Rendering locally with ${o.workers} workers (re-run to resume)`);
   const env: Record<string, string> = {
@@ -94,10 +102,7 @@ export async function renderRemote(hostName: string, o: RenderOptions): Promise<
 
   const envExports = Object.entries(host.env ?? {})
     .map(([k, v]) => `export ${k}=${v}`).join("\n");
-  const dockerEnv = [
-    "-e", `TONI_LANGUAGE=${shellQuote(o.language)}`,
-    ...(o.refText ? ["-e", `TONI_REF_TEXT=${shellQuote(o.refText)}`] : []),
-  ].join(" ");
+  const dockerEnv = dockerEnvFlags(o).join(" ");
 
   const script = [
     "set -e",
