@@ -116,7 +116,7 @@ stress-marked.
 | `-o, --output-dir` | `~/Downloads/audiobooks` | Folder that holds all your books |
 | `-w, --workers` | 2 | Parallel narration processes — don't raise this much, see [Troubleshooting](#troubleshooting) |
 | `-b, --bitrate` | 64k | Audio bitrate |
-| `-p, --pause` | 500 | Pause between sentences and chunks, in milliseconds; paragraph ends get twice that |
+| `-p, --pause` | 500 | Pause between sentences and chunks, in milliseconds; paragraph ends get twice that (`--paragraph-pause MS` on the lower-level CLI sets it; `0` disables it) |
 | `-f, --format` | m4b | `m4b` (with chapters) or `mp3` (no chapters) |
 | `--cover` | `cover.jpg`/`cover.png` in the book folder | Cover art (.jpg/.png, max 8 MB) embedded in the `m4b` |
 | `--loudness` | default | Loudness target: `default` (-18 LUFS) or `acx` (-19 LUFS ±1, true peak at most -3 dBTP, for Audible/ACX); the run fails if the finished file still misses the preset |

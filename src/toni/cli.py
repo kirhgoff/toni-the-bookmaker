@@ -421,7 +421,7 @@ def main(
         work_dir=work.work_dir,
         chunk_texts=chunk_texts,
         chapter_pattern=chapter_pattern,
-        paragraph_ends=[work.ends_paragraph(cid) for cid in audio_chunk_ids],
+        paragraph_ends=work.paragraph_ends(audio_chunk_ids),
         paragraph_pause_ms=paragraph_pause,
         cover_path=cover_file,
         chapter_titles=chapter_titles,

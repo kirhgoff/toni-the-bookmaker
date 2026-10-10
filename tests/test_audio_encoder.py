@@ -112,6 +112,38 @@ def test_trim_edges_keeps_margin_and_interior():
     assert abs(len(trimmed) - expected) < 100
 
 
+def test_trim_edges_accepts_column_and_row_shaped_input():
+    audio = np.concatenate([np.zeros(SR), tone(300), np.zeros(SR)])
+    assert len(trim_edges(audio.reshape(1, -1), SR)) == len(trim_edges(audio, SR)) > 0
+    assert len(trim_edges(audio.reshape(-1, 1), SR)) == len(trim_edges(audio, SR))
+
+
+def test_trim_edges_cuts_a_noise_floor_tail_on_a_quiet_chunk():
+    rng = np.random.default_rng(0)
+    hiss = (0.0005 * rng.standard_normal(SR)).astype(np.float32)
+    quiet = 0.04 * tone(300)
+    trimmed = trim_edges(np.concatenate([hiss, quiet, hiss]), SR)
+    assert len(trimmed) < len(quiet) + 2 * int(0.04 * SR) + 200
+
+
+def test_zero_paragraph_pause_disables_the_extra_pause(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 500) for i in range(2)]
+    concatenate_with_ffmpeg(
+        paths, tmp_path / "out.mp3", 24000, pause_ms=200, paragraph_ends=[True, False], paragraph_pause_ms=0
+    )
+    assert (tmp_path / "silence_0.wav").exists()
+    assert not (tmp_path / "silence_400.wav").exists()
+
+
+def test_build_chapters_zero_paragraph_pause_is_respected(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 1000) for i in range(2)]
+    chapters, total = build_chapters(
+        paths, ["Text.", "CHAPTER 2"], pause_ms=400, paragraph_ends=[True, False], paragraph_pause_ms=0
+    )
+    assert chapters == [(1000, "CHAPTER 2")]
+    assert total == 2000
+
+
 def test_trim_edges_all_silent_is_safe():
     assert len(trim_edges(np.zeros(SR, dtype=np.float32), SR)) <= int(0.04 * SR)
     assert len(trim_edges(np.zeros(0, dtype=np.float32), SR)) == 0

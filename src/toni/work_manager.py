@@ -405,7 +405,13 @@ class WorkManager:
 
     def ends_paragraph(self, chunk_id: str) -> bool:
         """Whether this chunk's audio is the last of its paragraph, even after splits."""
+        return self._ends_paragraph(self.load_manifest(), chunk_id)
+
+    def paragraph_ends(self, chunk_ids: list[str]) -> list[bool]:
         manifest = self.load_manifest()
+        return [self._ends_paragraph(manifest, chunk_id) for chunk_id in chunk_ids]
+
+    def _ends_paragraph(self, manifest: Manifest, chunk_id: str) -> bool:
         chunk_data = manifest.chunks.get(chunk_id, {})
         if chunk_data.get("ends_paragraph"):
             return True
@@ -415,7 +421,7 @@ class WorkManager:
         siblings = sorted(
             manifest.chunks[parent].get("sub_chunks", []), key=_chunk_sort_key
         )
-        return siblings[-1] == chunk_id and self.ends_paragraph(parent)
+        return siblings[-1] == chunk_id and self._ends_paragraph(manifest, parent)
 
     def get_progress_summary(self) -> dict:
         """Get summary of processing progress."""

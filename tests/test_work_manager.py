@@ -61,3 +61,20 @@ def test_ends_paragraph_survives_splits(tmp_path: Path) -> None:
     work.add_sub_chunk("0", "0_1", "b")
 
     assert [work.ends_paragraph(c) for c in ("0_0", "0_1", "1")] == [False, True, False]
+
+
+def test_paragraph_ends_loads_the_manifest_once(tmp_path: Path, monkeypatch) -> None:
+    work = WorkManager(tmp_path / "book.mp3", work_base=tmp_path / "work")
+    work.setup()
+    work.init_manifest(input_file=Path("in.txt"), output_file=Path("book.mp3"),
+                       model="omni", voice_file=None, sample_rate=24000,
+                       chunk_pause_ms=0, total_chunks=2, paragraph_ends=[True, False])
+    work.add_sub_chunk("0", "0_0", "a")
+    work.add_sub_chunk("0", "0_1", "b")
+
+    loads = []
+    original = work.load_manifest
+    monkeypatch.setattr(work, "load_manifest", lambda: loads.append(1) or original())
+
+    assert work.paragraph_ends(["0_0", "0_1", "1"]) == [False, True, False]
+    assert len(loads) == 1

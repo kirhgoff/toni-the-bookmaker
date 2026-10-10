@@ -78,17 +78,19 @@ DEFAULT_CHAPTER_PATTERN = (
 MAX_HEADING_CHARS = 60
 
 SILENCE_THRESHOLD_DB = -40.0
+SILENCE_FLOOR_DB = -50.0
 EDGE_MARGIN_MS = 40
 
 
 def silence_threshold(audio: np.ndarray) -> float:
-    return 10 ** (SILENCE_THRESHOLD_DB / 20) * float(np.max(np.abs(audio)))
+    relative = 10 ** (SILENCE_THRESHOLD_DB / 20) * float(np.max(np.abs(audio)))
+    return max(relative, 10 ** (SILENCE_FLOOR_DB / 20))
 
 
 def trim_edges(
     audio: np.ndarray, sample_rate: int, margin_ms: int = EDGE_MARGIN_MS
 ) -> np.ndarray:
-    """Trim leading and trailing silence, keeping a small margin."""
+    audio = np.ravel(audio)
     if audio.size == 0:
         return audio
     margin = int(margin_ms / 1000 * sample_rate)
@@ -150,7 +152,8 @@ def build_chapters(
     """
     heading = re.compile(pattern)
     ends = paragraph_ends or [False] * len(audio_paths)
-    paragraph_pause_ms = paragraph_pause_ms or pause_ms
+    if paragraph_pause_ms is None:
+        paragraph_pause_ms = pause_ms
     chapters: list[tuple[int, str]] = []
     offset = 0
     expected = 0
@@ -240,7 +243,8 @@ def concatenate_with_ffmpeg(
 
     concat_list_path = work_dir / "concat_list.txt"
     ends = paragraph_ends or [False] * len(audio_paths)
-    paragraph_pause_ms = paragraph_pause_ms or 2 * pause_ms
+    if paragraph_pause_ms is None:
+        paragraph_pause_ms = 2 * pause_ms
     silence_paths: dict[int, Path] = {}
 
     def silence_for(ms: int) -> Path:
