@@ -2,6 +2,16 @@
 
 import re
 
+ABBREVIATIONS = frozenset({
+    "mr", "mrs", "ms", "dr", "prof", "st", "jr", "sr", "vs", "etc",
+    "e.g", "i.e", "a.m", "p.m",
+    "т.е", "т.д", "т.п", "г", "гг", "ул", "им", "др", "проф",
+})
+SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?…])\s+(?=[\"«\'(\u2014-]?\+?[^\W\d_a-zа-яё])")
+CLAUSE_MARK = r"(?:(?<!\d)[,:]|[,:](?!\d)|[;\-—])"
+TERMINAL_PUNCTUATION = re.compile(r"[.!?…,:;\-—][\"»”\')\]]*$")
+SPEAKABLE = re.compile(r"\w")
+
 
 def chunk_text(text: str, max_chars: int = 500) -> list[str]:
     """Split text into chunks suitable for TTS processing.
@@ -31,9 +41,35 @@ def chunk_text(text: str, max_chars: int = 500) -> list[str]:
         if len(paragraph) <= max_chars:
             chunks.append(paragraph)
         else:
-            chunks.extend(split_paragraph(paragraph, max_chars))
+            chunks.extend(
+                end_with_punctuation(piece)
+                for piece in split_paragraph(paragraph, max_chars)
+            )
 
-    return chunks
+    return merge_unspeakable(chunks, max_chars)
+
+
+def end_with_punctuation(chunk: str) -> str:
+    """Give a piece cut from a long paragraph a terminal mark for finished intonation."""
+    return chunk if TERMINAL_PUNCTUATION.search(chunk) else chunk + "."
+
+
+def merge_unspeakable(chunks: list[str], max_chars: int) -> list[str]:
+    """Fold chunks with no letters or digits into a neighbour; drop them if it does not fit."""
+    merged: list[str] = []
+    carry = ""
+    for chunk in chunks:
+        if not SPEAKABLE.search(chunk):
+            if merged and len(merged[-1]) + len(chunk) + 1 <= max_chars:
+                merged[-1] = f"{merged[-1]} {chunk}"
+            elif not merged:
+                carry = chunk
+            continue
+        if carry and len(carry) + len(chunk) + 1 <= max_chars:
+            chunk = f"{carry} {chunk}"
+        carry = ""
+        merged.append(chunk)
+    return merged
 
 
 def split_chunk(text: str, max_chars: int | None = None) -> list[str]:
@@ -132,18 +168,31 @@ def split_paragraph(paragraph: str, max_chars: int) -> list[str]:
 
 
 def split_into_sentences(text: str) -> list[str]:
-    """Split text into sentences using regex.
-
-    Handles common abbreviations and edge cases.
-    """
-    sentence_pattern = r"(?<=[.!?…])\s+(?=[\"«\'(\u2014-]?\+?[^\W\d_a-zа-яё])"
-    sentences = re.split(sentence_pattern, text)
+    """Split text into sentences, keeping abbreviations like "Mr." or "т. е." intact."""
+    sentences = []
+    start = 0
+    for boundary in SENTENCE_BOUNDARY.finditer(text):
+        if not ends_with_abbreviation(text[start:boundary.start()]):
+            sentences.append(text[start:boundary.start()])
+            start = boundary.end()
+    sentences.append(text[start:])
     return [s.strip() for s in sentences if s.strip()]
+
+
+def ends_with_abbreviation(sentence: str) -> bool:
+    if not sentence.endswith("."):
+        return False
+    words = sentence.split()
+    candidates = [words[-1], "".join(words[-2:])]
+    return any(
+        word.lstrip("\"«'(").rstrip(".").lower() in ABBREVIATIONS
+        for word in candidates
+    )
 
 
 def split_long_sentence(sentence: str, max_chars: int) -> list[str]:
     """Split a sentence that exceeds max_chars at clause boundaries."""
-    clause_pattern = r"[,;:\-—]"
+    clause_pattern = CLAUSE_MARK
     parts = re.split(f"({clause_pattern})", sentence)
 
     chunks = []
