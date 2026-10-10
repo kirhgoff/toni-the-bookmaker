@@ -7,6 +7,7 @@ DOCKERFILE = (Path(__file__).parent.parent / "Dockerfile").read_text()
 def test_image_has_a_compiler_for_triton() -> None:
     apt_install = re.search(r"apt-get install[^\n]*(?:\\\n[^\n]*)*", DOCKERFILE).group(0)
     assert re.search(r"\bgcc\b", apt_install)
+    assert re.search(r"\blibc6-dev\b", apt_install)
 
 
 def test_image_exposes_the_compile_flag_off_by_default() -> None:
