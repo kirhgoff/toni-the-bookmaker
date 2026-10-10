@@ -1,4 +1,5 @@
 import re
+import statistics
 import unicodedata
 from dataclasses import dataclass
 from functools import lru_cache
@@ -6,6 +7,7 @@ from functools import lru_cache
 CHAR_SCRIPTS = re.compile(r"[฀-๿぀-ヿ㐀-䶿一-鿿豈-﫿]")
 DEFAULT_WEIGHT_PER_SECOND = 20.0
 MIN_CHECKED_SECONDS = 4.0
+MIN_CALIBRATION_SAMPLES = 5
 
 
 @dataclass
@@ -16,7 +18,8 @@ class Thresholds:
 
 
 def normalise(text: str) -> list[str]:
-    text = unicodedata.normalize("NFKD", text.lower().replace("+", ""))
+    text = "".join(" " if unicodedata.category(c) == "Pd" else c for c in text.lower().replace("+", ""))
+    text = unicodedata.normalize("NFKD", text)
     text = "".join(c for c in text if unicodedata.category(c)[0] not in "MPS")
     return list(text.replace(" ", "")) if CHAR_SCRIPTS.search(text) else text.split()
 
@@ -61,7 +64,14 @@ def expected_seconds(
     return _weigh()(text) / rate / speed
 
 
-def verdict(wer: float, ratio: float, expected: float, t: Thresholds) -> str:
+def calibration_median(ratios: list[float]) -> float | None:
+    return statistics.median(ratios) if len(ratios) >= MIN_CALIBRATION_SAMPLES else None
+
+
+def verdict(
+    wer: float, ratio: float, expected: float, t: Thresholds, median: float | None = None
+) -> str:
     # OmniVoice stretches estimates under ~50 tokens, so short chunks always read long
-    duration_ok = expected < MIN_CHECKED_SECONDS or t.ratio_min <= ratio <= t.ratio_max
+    judged = ratio / median if median else ratio
+    duration_ok = expected < MIN_CHECKED_SECONDS or t.ratio_min <= judged <= t.ratio_max
     return "pass" if wer <= t.wer and duration_ok else "fail"

@@ -16,7 +16,7 @@ import soundfile as sf
 
 def load_transcriber(device: str | None = None) -> Callable[[np.ndarray, int], str]:
     import torch
-    from omnivoice import OmniVoice
+    from transformers import pipeline
 
     if device is None:
         device = (
@@ -24,13 +24,15 @@ def load_transcriber(device: str | None = None) -> Callable[[np.ndarray, int], s
             else "cuda" if torch.cuda.is_available()
             else "cpu"
         )
-    model = OmniVoice.from_pretrained(
-        "k2-fsa/OmniVoice",
-        device_map=device,
-        dtype=torch.float32 if device == "cpu" else torch.float16,
+    asr = pipeline(
+        "automatic-speech-recognition",
+        model="openai/whisper-large-v3-turbo",
+        device=device,
+        torch_dtype=torch.float32 if device == "cpu" else torch.float16,
     )
-    model.load_asr_model()
-    return lambda waveform, sample_rate: model.transcribe((waveform, sample_rate)).strip()
+    return lambda waveform, sample_rate: asr(
+        {"raw": waveform, "sampling_rate": sample_rate}
+    )["text"].strip()
 
 
 def transcribe_reference(audio_path: Path, device: str = "cpu") -> str:
@@ -52,7 +54,7 @@ def main(audio: Path, output: Path | None, device: str) -> None:
     try:
         text = transcribe_reference(audio, device)
     except ImportError:
-        raise SystemExit("omnivoice is not installed. Install it with: uv sync --extra omni")
+        raise SystemExit("transformers is not installed. Install an engine extra, e.g.: uv sync --extra omni")
 
     if output:
         output.write_text(text, encoding="utf-8")

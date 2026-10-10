@@ -29,6 +29,9 @@ class FakeEngine(TTSEngine):
         self.fail_texts: set[str] = set()
         self.bad_takes: dict[str, int] = {}
         self.transcribed = 0
+        self.stretch: dict[str, float] = {}
+        self.base_stretch = 1.0
+        self.say = lambda text: text
 
     name = property(lambda self: "fake")
     sample_rate = property(lambda self: SR)
@@ -45,7 +48,7 @@ class FakeEngine(TTSEngine):
             raise RuntimeError(f"boom: {text}")
         n = len(self.takes)
         self.takes.append((text, random.getrandbits(32)))
-        length = int(seconds_for(text) * SR) // 1000 * 1000 + 1000 + n
+        length = int(seconds_for(text) * self.stretch.get(text, self.base_stretch) * SR) // 1000 * 1000 + 1000 + n
         return np.full(length, 0.1, dtype=np.float32)
 
     def generate(self, text, voice_sample=None, progress_callback=None):
@@ -63,7 +66,7 @@ class FakeEngine(TTSEngine):
         n = len(audio) % 1000
         text = self.takes[n][0]
         earlier = sum(1 for t, _ in self.takes[:n] if t == text)
-        return "" if earlier < self.bad_takes.get(text, 0) else text
+        return "" if earlier < self.bad_takes.get(text, 0) else self.say(text)
 
 
 @pytest.fixture

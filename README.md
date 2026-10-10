@@ -187,11 +187,18 @@ with `-o` or the `AUDIOBOOK_LIBRARY` environment variable.
 ## Quality check
 
 After rendering, Toni transcribes every chunk back with Whisper and compares it
-with the text (word error rate) and its duration with what the text should
-take. A chunk that skips words, babbles or is cut short is regenerated with a
+with the text (word error rate, after the same number and abbreviation
+normalisation as the text) and its duration with what the text should take,
+judged against the median of the run once at least five chunks of four seconds
+or more have been measured. A chunk that skips words, babbles or is cut short is regenerated with a
 fresh but reproducible seed, up to twice, and then split like any failed chunk.
 The run ends with a `QC:` summary; per-chunk results are in `manifest.json`.
-Whisper runs once in the main process after rendering, never in render workers.
+Whisper (`openai/whisper-large-v3-turbo` through `transformers`, loaded per QC
+round and never alongside the TTS model) runs in the main process after
+rendering, never in render workers. QC runs on installs that include
+`transformers`: the `omni`, `espeech`, `kani` and `qwen` extras and the remote
+Docker image built from them. On a `pocket` install it is skipped with a
+one-line message.
 
 Tune it with environment variables (or the matching `toni.cli` flags):
 `TONI_QC=0` (off), `TONI_QC_WER` (default 0.25), `TONI_QC_RATIO_MIN` (0.6),

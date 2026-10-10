@@ -21,9 +21,17 @@ from toni.audio_encoder import (
 )
 from toni.chunker import chunk_with_marks, split_chunk
 from toni.lexicon import load_lexicon
-from toni.qc import Thresholds, expected_seconds, verdict, word_error_rate
+from toni.qc import (
+    MIN_CHECKED_SECONDS,
+    Thresholds,
+    calibration_median,
+    expected_seconds,
+    verdict,
+    word_error_rate,
+)
 from toni.seed import chunk_seed, seed_everything
 from toni.text_extractor import extract_text
+from toni.text_normalization import normalization_enabled, normalize_speech_text
 from toni.tts import get_engine, list_engines
 from toni.work_manager import WorkManager, run_fingerprint
 
@@ -245,15 +253,26 @@ def qc_pass(
     max_retries: int,
     expected: Callable[[str, float | None], float],
     sample_rate: int,
+    language: str | None = None,
 ) -> tuple[int, int, int]:
-    checked = flipped = gave_up = 0
+    heard = []
     for cid in work.get_unchecked_chunks():
         text = work.load_chunk_text(cid)
         audio = load_chunk_wav(work.get_chunk_audio_path(cid))
         seconds = expected(text, work.get_chunk_speed(cid))
-        wer = word_error_rate(text, transcriber(audio, sample_rate))
+        hypothesis = transcriber(audio, sample_rate)
+        if normalization_enabled():
+            hypothesis = normalize_speech_text(hypothesis, language)
         ratio = len(audio) / sample_rate / seconds if seconds else 1.0
-        result = verdict(wer, ratio, seconds, thresholds)
+        heard.append((cid, text, word_error_rate(text, hypothesis), ratio, seconds))
+
+    median = calibration_median(
+        [ratio for _, _, _, ratio, seconds in heard if seconds >= MIN_CHECKED_SECONDS]
+        + _checked_ratios(work, expected)
+    )
+    checked = flipped = gave_up = 0
+    for cid, text, wer, ratio, seconds in heard:
+        result = verdict(wer, ratio, seconds, thresholds, median)
         retries = work.get_retries(cid)
         qc = {"wer": round(wer, 3), "ratio": round(ratio, 2), "attempts": retries, "verdict": result}
         checked += 1
@@ -273,6 +292,15 @@ def qc_pass(
         else:
             gave_up += 1
     return checked, flipped, gave_up
+
+
+def _checked_ratios(work: "WorkManager", expected: Callable[[str, float | None], float]) -> list[float]:
+    return [
+        data["qc"]["ratio"]
+        for cid, data in work.load_manifest().chunks.items()
+        if "qc" in data
+        and expected(work.load_chunk_text(cid), work.get_chunk_speed(cid)) >= MIN_CHECKED_SECONDS
+    ]
 
 
 def _reference_seconds(voice_file: Path | None) -> float | None:
@@ -584,11 +612,12 @@ def main(
 
             transcriber = load_transcriber(os.environ.get("TONI_OMNI_DEVICE"))
         except ImportError:
-            click.echo("QC skipped: omnivoice is not installed")
+            click.echo("QC skipped: transformers is not installed (install an engine extra such as omni)")
             break
         click.echo("Checking chunks with ASR...")
         counts = qc_pass(
-            work, transcriber, thresholds, qc_retries, max_retries, expected, manifest.sample_rate
+            work, transcriber, thresholds, qc_retries, max_retries, expected, manifest.sample_rate,
+            os.environ.get("TONI_LANGUAGE"),
         )
         del transcriber
         totals = [a + b for a, b in zip(totals, counts)]
