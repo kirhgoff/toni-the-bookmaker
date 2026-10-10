@@ -91,6 +91,53 @@ The default engine, `omni`, can narrate in any of 600+ languages — pass one
 with `-l`, e.g. `-l ru` for Russian. `espeech` and `qwen` also support
 Russian; `pocket` and `kani` only support English.
 
+### Numbers, years and abbreviations
+
+For English and Russian the text is normalised before chunking: numbers,
+years (`1812` becomes "eighteen twelve" in English) and common abbreviations
+before a capitalised word (`Dr. Smith`) are spoken out, repeated punctuation
+is capped at three marks, and `omni` also enables its own English normaliser.
+Ambiguous tokens (`1,000`, `007`, `A12`, `1.2.3`) are left alone. Russian
+numerals are read in the nominative case regardless of context. Set
+`TONI_NORMALIZE=0` to turn all of this off (`toni-record` forwards it to
+remote hosts). It needs a language: `toni-record` defaults to `en`, but the
+plain `toni` CLI reads it only from `TONI_LANGUAGE`, so without that variable
+nothing is normalised.
+
+### Pacing tags
+
+Put tags in the source text to hand-tune pacing; they are never spoken:
+
+- `[pause]` adds 350 ms of silence, `[pause 800ms]` or `[pause 2s]` a chosen
+  length (at most 10 s). It stacks on the normal pause between chunks, and
+  chapter timings account for it.
+- `[slow]...[/slow]` narrates the passage at 0.85x speed. Only `omni`
+  supports speed; other engines ignore it with a warning.
+
+A malformed tag (`[pause soon]`, a stray `[/slow]`) is left as text and a
+warning is printed.
+
+### Pronunciation lexicon
+
+Put a `lexicon.txt` next to the book's `source.txt`
+(`~/Downloads/audiobooks/<name>/`) to fix names and foreign words across the
+whole book, one `term = respelling` per line; a line starting with `#` is a
+comment, and a `#` elsewhere is part of the line (`C# = see sharp`). Lines that
+cannot be parsed are skipped with a warning:
+
+```
+# longest match wins, stress marks are kept
+Gandalf = Gand-alf
+New York = Noo Yorrk
+Аня = Ан+я
+```
+
+Matching is case-insensitive, on whole words, longest term first, in one pass
+(a respelling is never re-replaced). It runs after normalisation and before
+Russian stress marking, so write terms the way they read after normalisation,
+in spoken form (`Catch twenty-two`, not `Catch-22`). It is also sent to remote hosts. A running render keeps the
+chunks it already made — start a new run (`-t`) to apply a changed lexicon.
+
 ### Russian stress marking
 
 Russian has no fixed stress rule, so a TTS model that cannot see the stressed
@@ -208,7 +255,9 @@ prefer the script unless you have a specific reason not to.
 - **No chapters appear in the output.** The chapter detector looks for lines
   starting with words like `CHAPTER` or `PART`. Check what your book actually
   uses (`grep -cE "^(PART|BOOK|CHAPTER|Chapter)\b" source.txt`) and pass your
-  own pattern with `-c` if it comes back zero.
+  own pattern with `-c` if it comes back zero. Headings are matched on the
+  text as written in the source, before numbers are spoken out or the lexicon
+  is applied, so `-c '^Глава \d+'` works as expected.
 - **The time estimate looks wrong early on.** Per-chunk timing drifts as the
   run settles in; ignore the ETA for the first several minutes.
 - **Don't raise `-w` (workers) much above 2.** Each worker loads its own copy

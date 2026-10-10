@@ -16,10 +16,11 @@ export interface RenderOptions {
   model: string;
   chapterPattern?: string;
   voiceRef?: string;
+  lexicon?: string;
   refText?: string;
 }
 
-function cliArgs(o: RenderOptions, inDir: string, outDir: string): string[] {
+export function cliArgs(o: RenderOptions, inDir: string, outDir: string): string[] {
   const args = [
     "-i", `${inDir}/source.txt`,
     "-o", `${outDir}/${o.name}.${o.format}`,
@@ -30,8 +31,17 @@ function cliArgs(o: RenderOptions, inDir: string, outDir: string): string[] {
     "--work-dir", `${outDir}/work`,
   ];
   if (o.voiceRef) args.push("-v", `${inDir}/voice_ref.wav`);
+  if (o.lexicon) args.push("--lexicon", `${inDir}/lexicon.txt`);
   if (o.chapterPattern) args.push("--chapter-pattern", o.chapterPattern);
   return args;
+}
+
+export function dockerEnvFlags(o: RenderOptions, env = process.env): string[] {
+  return [
+    "-e", `TONI_LANGUAGE=${shellQuote(o.language)}`,
+    ...(o.refText ? ["-e", `TONI_REF_TEXT=${shellQuote(o.refText)}`] : []),
+    ...(env.TONI_NORMALIZE ? ["-e", `TONI_NORMALIZE=${shellQuote(env.TONI_NORMALIZE)}`] : []),
+  ];
 }
 
 export async function renderLocal(o: RenderOptions): Promise<void> {
@@ -88,13 +98,11 @@ export async function renderRemote(hostName: string, o: RenderOptions): Promise<
   await remoteSh(`mkdir -p ${shellQuote(jobDir)}`);
   await rsync(`${o.bookDir}/source.txt`, `${host.ssh}:${jobDir}/source.txt`);
   if (o.voiceRef) await rsync(o.voiceRef, `${host.ssh}:${jobDir}/voice_ref.wav`);
+  if (o.lexicon) await rsync(o.lexicon, `${host.ssh}:${jobDir}/lexicon.txt`);
 
   const envExports = Object.entries(host.env ?? {})
     .map(([k, v]) => `export ${k}=${v}`).join("\n");
-  const dockerEnv = [
-    "-e", `TONI_LANGUAGE=${shellQuote(o.language)}`,
-    ...(o.refText ? ["-e", `TONI_REF_TEXT=${shellQuote(o.refText)}`] : []),
-  ].join(" ");
+  const dockerEnv = dockerEnvFlags(o).join(" ");
 
   const script = [
     "set -e",

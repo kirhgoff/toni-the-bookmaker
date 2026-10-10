@@ -229,6 +229,7 @@ class WorkManager:
         total_chunks: int,
         copied_input: Path | None = None,
         copied_voice: Path | None = None,
+        chunk_marks: list[dict[str, Any]] | None = None,
     ) -> Manifest:
         """Initialize a new manifest with run parameters."""
         self._manifest = Manifest(
@@ -250,7 +251,8 @@ class WorkManager:
         )
 
         for i in range(total_chunks):
-            self._manifest.chunks[str(i)] = {"status": "pending"}
+            marks = chunk_marks[i] if chunk_marks else {}
+            self._manifest.chunks[str(i)] = {"status": "pending", **marks}
 
         self.save_manifest()
         return self._manifest
@@ -258,6 +260,10 @@ class WorkManager:
     def get_chunk_text_path(self, chunk_id: str) -> Path:
         """Get path for a chunk's text file."""
         return self.chunks_dir / f"{chunk_id}.txt"
+
+    def get_chunk_raw_text_path(self, chunk_id: str) -> Path:
+        """Get path for a chunk's pre-normalisation text file."""
+        return self.chunks_dir / f"{chunk_id}.raw.txt"
 
     def get_chunk_audio_path(self, chunk_id: str) -> Path:
         """Get path for a chunk's audio file."""
@@ -267,6 +273,15 @@ class WorkManager:
         """Save chunk text to file."""
         path = self.get_chunk_text_path(chunk_id)
         path.write_text(text, encoding="utf-8")
+
+    def save_chunk_raw_text(self, chunk_id: str, raw_text: str) -> None:
+        """Save a chunk's pre-normalisation text, which chapter headings are matched on."""
+        self.get_chunk_raw_text_path(chunk_id).write_text(raw_text, encoding="utf-8")
+
+    def load_chunk_heading_text(self, chunk_id: str) -> str:
+        """Load a chunk's pre-normalisation text, falling back to its spoken text."""
+        path = self.get_chunk_raw_text_path(chunk_id)
+        return path.read_text(encoding="utf-8") if path.exists() else self.load_chunk_text(chunk_id)
 
     def load_chunk_text(self, chunk_id: str) -> str:
         """Load chunk text from file."""
@@ -375,6 +390,35 @@ class WorkManager:
             manifest.chunks[sub_id] = {"status": "pending", "parent": str(parent_id)}
 
             self.save_manifest()
+
+    def get_chunk_speed(self, chunk_id: str) -> float | None:
+        """Speed set on the chunk or the nearest ancestor it was split from."""
+        chunks = self.load_manifest().chunks
+        current: str | None = str(chunk_id)
+        while current is not None:
+            data = chunks.get(current, {})
+            if data.get("speed") is not None:
+                return data["speed"]
+            current = data.get("parent")
+        return None
+
+    def get_extra_pauses(self, chunk_ids: list[str]) -> list[int]:
+        """Extra pause in ms after each chunk; a split chunk's pause follows its last sub-chunk."""
+        chunks = self.load_manifest().chunks
+        pauses = []
+        for chunk_id in chunk_ids:
+            total = 0
+            current: str | None = str(chunk_id)
+            while current is not None:
+                data = chunks.get(current, {})
+                total += data.get("pause_ms", 0)
+                parent = data.get("parent")
+                siblings = sorted(
+                    chunks.get(parent, {}).get("sub_chunks", []), key=_chunk_sort_key
+                )
+                current = parent if siblings and siblings[-1] == current else None
+            pauses.append(total)
+        return pauses
 
     def get_all_audio_chunks_ordered(self) -> list[str]:
         """Get all chunk IDs that have audio, in correct order for concatenation."""

@@ -14,7 +14,8 @@ from toni.audio_encoder import (
     concatenate_with_ffmpeg,
     save_chunk_wav,
 )
-from toni.chunker import chunk_text, split_chunk
+from toni.chunker import chunk_with_marks, split_chunk
+from toni.lexicon import load_lexicon
 from toni.text_extractor import extract_text
 from toni.tts import get_engine, list_engines
 from toni.work_manager import WorkManager
@@ -73,6 +74,24 @@ def _process_chunk_in_worker(args: tuple) -> tuple[str, bool, list[str]]:
     return chunk_id, success, generated_ids
 
 
+_warned_speed_ignored = False
+
+
+def _speed_kwargs(engine, speed: float | None) -> dict:
+    global _warned_speed_ignored
+    if speed is None:
+        return {}
+    if engine.supports_speed:
+        return {"speed": speed}
+    if not _warned_speed_ignored:
+        click.echo(
+            f"Warning: engine '{engine.name}' does not support [slow]; speed ignored",
+            err=True,
+        )
+        _warned_speed_ignored = True
+    return {}
+
+
 def _process_chunk_recursive(
     work: "WorkManager",
     engine,
@@ -104,7 +123,11 @@ def _process_chunk_recursive(
     text = work.load_chunk_text(chunk_id)
 
     try:
-        audio = engine.generate(text, voice_sample=voice_file)
+        audio = engine.generate(
+            text,
+            voice_sample=voice_file,
+            **_speed_kwargs(engine, work.get_chunk_speed(chunk_id)),
+        )
         audio_path = work.get_chunk_audio_path(chunk_id)
         save_chunk_wav(audio, engine.sample_rate, audio_path)
         work.set_chunk_status(chunk_id, "completed")
@@ -153,6 +176,15 @@ def _process_chunk_recursive(
         return False
 
 
+def _chunk_marks(chunk) -> dict:
+    marks = {}
+    if chunk.pause_ms:
+        marks["pause_ms"] = chunk.pause_ms
+    if chunk.speed is not None:
+        marks["speed"] = chunk.speed
+    return marks
+
+
 @click.command()
 @click.option(
     "-i",
@@ -177,6 +209,13 @@ def _process_chunk_recursive(
     type=click.Path(exists=True, path_type=Path),
     default=None,
     help="Voice sample WAV file for voice cloning.",
+)
+@click.option(
+    "--lexicon",
+    "lexicon_file",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Pronunciation lexicon: one 'term = respelling' per line, # comments.",
 )
 @click.option(
     "-m",
@@ -232,6 +271,7 @@ def main(
     input_file: Path,
     output_file: Path | None,
     voice_file: Path | None,
+    lexicon_file: Path | None,
     model: str,
     chunk_pause: int,
     bitrate: str,
@@ -297,7 +337,12 @@ def main(
 
         engine = get_engine(model)
 
-        chunks = chunk_text(text, max_chars=engine.max_chunk_chars)
+        chunks = chunk_with_marks(
+            text,
+            max_chars=engine.max_chunk_chars,
+            language=os.environ.get("TONI_LANGUAGE"),
+            lexicon=load_lexicon(lexicon_file) if lexicon_file else None,
+        )
         total_chunks = len(chunks)
 
         if verbose:
@@ -320,10 +365,13 @@ def main(
             total_chunks=total_chunks,
             copied_input=copied_input,
             copied_voice=copied_voice,
+            chunk_marks=[_chunk_marks(chunk) for chunk in chunks],
         )
 
         for i, chunk in enumerate(chunks):
-            work.save_chunk_text(str(i), chunk)
+            work.save_chunk_text(str(i), chunk.text)
+            if chunk.raw_text != chunk.text:
+                work.save_chunk_raw_text(str(i), chunk.raw_text)
 
         click.echo(f"Saved {total_chunks} text chunks to {work.chunks_dir}")
 
@@ -376,6 +424,7 @@ def main(
     click.echo(f"Concatenating {len(audio_chunk_ids)} audio chunks with ffmpeg...")
     audio_paths = [work.get_chunk_audio_path(cid) for cid in audio_chunk_ids]
     chunk_texts = [work.load_chunk_text(cid) for cid in audio_chunk_ids]
+    heading_texts = [work.load_chunk_heading_text(cid) for cid in audio_chunk_ids]
 
     work_output = work.work_dir / f"output{output_file.suffix or '.mp3'}"
     chapter_count = concatenate_with_ffmpeg(
@@ -386,7 +435,9 @@ def main(
         bitrate=bitrate,
         work_dir=work.work_dir,
         chunk_texts=chunk_texts,
+        heading_texts=heading_texts,
         chapter_pattern=chapter_pattern,
+        extra_pauses_ms=work.get_extra_pauses(audio_chunk_ids),
     )
     if chapter_count:
         click.echo(f"Embedded {chapter_count} chapters")

@@ -6,6 +6,7 @@ from typing import Callable
 
 import numpy as np
 
+from toni.text_normalization import base_language, normalization_enabled
 from toni.tts.base import TTSEngine
 
 DEFAULT_INSTRUCT = "male, middle-aged, low pitch"
@@ -24,8 +25,11 @@ class OmniVoiceEngine(TTSEngine):
         TONI_REF_TEXT:      transcript of the voice sample, skips Whisper
         TONI_OMNI_DEVICE:   cpu / mps / cuda; unset = auto
         TONI_OMNI_NUM_STEP: diffusion steps, default 32 (16 is faster)
+        TONI_NORMALIZE:     0 turns off number/abbreviation normalisation, here and in the chunker
         TONI_OMNI_SPEED:    speaking rate factor; below 1.0 gives every chunk more room
     """
+
+    supports_speed = True
 
     def __init__(self):
         self._model = None
@@ -87,6 +91,7 @@ class OmniVoiceEngine(TTSEngine):
         text: str,
         voice_sample: Path | None = None,
         progress_callback: Callable[[float], None] | None = None,
+        speed: float | None = None,
     ) -> np.ndarray:
         from omnivoice.models.omnivoice import OmniVoiceGenerationConfig
 
@@ -100,9 +105,11 @@ class OmniVoiceEngine(TTSEngine):
                 num_step=int(os.environ.get("TONI_OMNI_NUM_STEP", "32"))
             ),
         }
-        speed = os.environ.get("TONI_OMNI_SPEED")
-        if speed:
-            kwargs["speed"] = float(speed)
+        base_speed = float(os.environ.get("TONI_OMNI_SPEED") or 1.0)
+        if speed or base_speed != 1.0:
+            kwargs["speed"] = base_speed * (speed or 1.0)
+        if normalization_enabled() and base_language(kwargs["language"]) == "en":
+            kwargs["normalize_text"] = True
         if voice_sample is not None:
             kwargs["voice_clone_prompt"] = self._voice_prompt(voice_sample)
         else:
