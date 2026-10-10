@@ -10,11 +10,12 @@ export interface LoudnessPreset {
   truePeak: number;
   range: number;
   tolerance: number;
+  enforcePeak: boolean;
 }
 
 export const PRESETS = {
-  default: { lufs: -18, truePeak: -2, range: 11, tolerance: 2 },
-  acx: { lufs: -19, truePeak: -3, range: 11, tolerance: 1 },
+  default: { lufs: -18, truePeak: -2, range: 11, tolerance: 2, enforcePeak: false },
+  acx: { lufs: -19, truePeak: -3, range: 11, tolerance: 1, enforcePeak: true },
 } as const satisfies Record<string, LoudnessPreset>;
 
 export type PresetName = keyof typeof PRESETS;
@@ -37,8 +38,14 @@ export function loudnormFilter(preset: LoudnessPreset, extra = ""): string {
   return `loudnorm=I=${preset.lufs}:TP=${preset.truePeak}:LRA=${preset.range}${extra}:print_format=json`;
 }
 
-function limiterCeiling(preset: LoudnessPreset): number {
-  return 10 ** ((preset.truePeak - 1) / 20);
+const MAX_NORMALIZE_ATTEMPTS = 3;
+
+export function initialCeiling(preset: LoudnessPreset): number {
+  return preset.truePeak - 1;
+}
+
+export function lowerCeiling(ceilingDb: number, normalized: Loudness, preset: LoudnessPreset): number {
+  return ceilingDb - (normalized.truePeak - preset.truePeak) - 0.5;
 }
 
 export function parseLoudnorm(stderr: string): Loudness {
@@ -57,7 +64,8 @@ export function parseLoudnorm(stderr: string): Loudness {
 }
 
 export function needsNormalizing(loudness: Loudness, preset: LoudnessPreset = PRESETS.default): boolean {
-  return Math.abs(loudness.integrated - preset.lufs) > preset.tolerance || loudness.truePeak > preset.truePeak;
+  return Math.abs(loudness.integrated - preset.lufs) > preset.tolerance ||
+    (preset.enforcePeak && loudness.truePeak > preset.truePeak);
 }
 
 function describeLoudness(loudness: Loudness, preset: LoudnessPreset): string {
@@ -67,7 +75,13 @@ function describeLoudness(loudness: Loudness, preset: LoudnessPreset): string {
 
 export function assertMeetsPreset(loudness: Loudness, preset: LoudnessPreset, path: string): void {
   if (needsNormalizing(loudness, preset)) {
-    throw new Error(`${path} is still outside the loudness preset after normalizing: ${describeLoudness(loudness, preset)}`);
+    throw new Error(`${path} is still outside the loudness preset after normalizing (the file is kept): ${describeLoudness(loudness, preset)}`);
+  }
+}
+
+function warnAboutPeak(loudness: Loudness, preset: LoudnessPreset): void {
+  if (!preset.enforcePeak && loudness.truePeak > preset.truePeak) {
+    log(`  Warning: true peak ${loudness.truePeak.toFixed(1)} dBTP is above ${preset.truePeak} dBTP; use --loudness acx to enforce a ceiling`);
   }
 }
 
@@ -85,7 +99,8 @@ export async function normalizeLoudness(
   path: string,
   measured: Loudness,
   preset: LoudnessPreset = PRESETS.default,
-): Promise<void> {
+  ceilingDb: number = initialCeiling(preset),
+): Promise<string> {
   const ext = extname(path);
   if (!ext) throw new Error(`${path} needs a .m4b or .mp3 extension`);
   const { stdout } = await runOrThrow([
@@ -105,24 +120,38 @@ export async function normalizeLoudness(
   await runOrThrow([
     "ffmpeg", "-v", "error", "-y", "-i", path,
     "-map", "0:a", "-map_metadata", "0", "-map_chapters", "0",
-    "-af", `${loudnormFilter(preset, measuredArgs)},aresample=${stream.sample_rate},alimiter=limit=${limiterCeiling(preset).toFixed(3)}:attack=1:level=false`,
+    "-af", `${loudnormFilter(preset, measuredArgs)},alimiter=limit=${(10 ** (ceilingDb / 20)).toFixed(3)}:attack=1:level=false,aresample=${stream.sample_rate}`,
     "-c:a", encoder, "-b:a", bitrate, "-ar", stream.sample_rate,
     ...(encoder === "aac" ? ["-movflags", "+faststart"] : []),
     temp,
   ]);
-  await rename(temp, path);
+  return temp;
 }
 
 export async function verifyBook(path: string, preset: LoudnessPreset = PRESETS.default): Promise<void> {
   log("Checking decode and loudness");
   const measured = await measureLoudness(path, preset);
   log(`  ${describeLoudness(measured, preset)}`);
-  if (!needsNormalizing(measured, preset)) return;
+  if (!needsNormalizing(measured, preset)) {
+    warnAboutPeak(measured, preset);
+    return;
+  }
   log(`  Normalizing to ${preset.lufs} LUFS, keeping chapters and metadata`);
-  await normalizeLoudness(path, measured, preset);
-  const normalized = await measureLoudness(path, preset);
-  log(`  After normalizing: ${describeLoudness(normalized, preset)}`);
+  let ceiling = initialCeiling(preset);
+  let temp = "";
+  let normalized = measured;
+  for (let attempt = 1; ; attempt++) {
+    temp = await normalizeLoudness(path, measured, preset, ceiling);
+    normalized = await measureLoudness(temp, preset);
+    log(`  After normalizing: ${describeLoudness(normalized, preset)}`);
+    const overshoot = normalized.truePeak - preset.truePeak;
+    if (!preset.enforcePeak || overshoot <= 0 || attempt === MAX_NORMALIZE_ATTEMPTS) break;
+    ceiling = lowerCeiling(ceiling, normalized, preset);
+    log(`  The encoder overshoots the ${preset.truePeak} dBTP ceiling by ${overshoot.toFixed(1)} dB; limiting at ${ceiling.toFixed(1)} dB and encoding again`);
+  }
+  await rename(temp, path);
   assertMeetsPreset(normalized, preset, path);
+  warnAboutPeak(normalized, preset);
 }
 
 if (import.meta.main) {

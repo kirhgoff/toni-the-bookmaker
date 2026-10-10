@@ -1,6 +1,12 @@
 import { expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { assertMeetsPreset, loudnormFilter, needsNormalizing, parseLoudnorm, PRESETS, resolvePreset } from "./loudness.ts";
+import {
+  assertMeetsPreset, initialCeiling, loudnormFilter, lowerCeiling, measureLoudness, needsNormalizing,
+  parseLoudnorm, PRESETS, resolvePreset, verifyBook,
+} from "./loudness.ts";
 
 const STDERR = `[Parsed_loudnorm_0 @ 0x7e7020e40] \n{\n\t"input_i" : "-37.14",\n\t"input_tp" : "-19.04",\n\t"input_lra" : "5.30",\n\t"input_thresh" : "-48.27",\n\t"output_i" : "-17.95",\n\t"normalization_type" : "dynamic",\n\t"target_offset" : "-0.05"\n}\n[out#0/null @ 0x7e70206c0] video:0KiB audio:750KiB\n`;
 
@@ -16,12 +22,12 @@ test("rejects a silent file", () => {
 });
 
 test("default preset keeps the -18 LUFS / -2 dBTP target", () => {
-  expect(resolvePreset("default")).toEqual({ lufs: -18, truePeak: -2, range: 11, tolerance: 2 });
+  expect(resolvePreset("default")).toEqual({ lufs: -18, truePeak: -2, range: 11, tolerance: 2, enforcePeak: false });
   expect(loudnormFilter(PRESETS.default)).toBe("loudnorm=I=-18:TP=-2:LRA=11:print_format=json");
 });
 
 test("acx preset targets -19 LUFS with a -3 dBTP ceiling", () => {
-  expect(resolvePreset("acx")).toEqual({ lufs: -19, truePeak: -3, range: 11, tolerance: 1 });
+  expect(resolvePreset("acx")).toEqual({ lufs: -19, truePeak: -3, range: 11, tolerance: 1, enforcePeak: true });
   expect(loudnormFilter(PRESETS.acx, ":linear=true")).toBe("loudnorm=I=-19:TP=-3:LRA=11:linear=true:print_format=json");
 });
 
@@ -44,13 +50,40 @@ test("acx rejects what its ±1 LU window and -3 dBTP ceiling rule out", () => {
   expect(needsNormalizing({ ...loud, integrated: -17.9 }, PRESETS.default)).toBe(false);
 });
 
-test("a true peak above the preset ceiling triggers normalizing even when loudness is on target", () => {
-  const peaky = { integrated: -18, truePeak: -1, range: 5, threshold: -30 };
-  expect(needsNormalizing(peaky, PRESETS.default)).toBe(true);
+test("a true peak above the ceiling only triggers normalizing when the preset enforces it", () => {
+  expect(needsNormalizing({ integrated: -18, truePeak: -1, range: 5, threshold: -30 }, PRESETS.default)).toBe(false);
+  expect(needsNormalizing({ integrated: -19, truePeak: -1, range: 5, threshold: -30 }, PRESETS.acx)).toBe(true);
 });
 
 test("a book that still misses the preset after normalizing is an error", () => {
   const stillLoud = { integrated: -19, truePeak: -1.5, range: 5, threshold: -30 };
   expect(() => assertMeetsPreset(stillLoud, PRESETS.acx, "book.m4b")).toThrow("still outside the loudness preset");
   expect(() => assertMeetsPreset({ ...stillLoud, truePeak: -3.2 }, PRESETS.acx, "book.m4b")).not.toThrow();
+  const peaky = { integrated: -18, truePeak: -1, range: 5, threshold: -30 };
+  expect(() => assertMeetsPreset(peaky, PRESETS.default, "book.m4b")).not.toThrow();
 });
+
+test("the limiter ceiling starts below the preset and drops by the overshoot plus a margin", () => {
+  expect(initialCeiling(PRESETS.acx)).toBe(-4);
+  const overshooting = { integrated: -19, truePeak: -1.7, range: 5, threshold: -30 };
+  expect(lowerCeiling(-4, overshooting, PRESETS.acx)).toBeCloseTo(-5.8);
+});
+
+test("acx brings a clicky low-bitrate file under its true-peak ceiling", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "loudness-"));
+  try {
+    const file = join(dir, "clicky.m4b");
+    const made = Bun.spawnSync([
+      "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+      "aevalsrc=0.9*lt(mod(n\\,24000)\\,2)+0.1*sin(2*PI*220*t):s=24000:d=10",
+      "-c:a", "aac", "-b:a", "32k", "-ar", "24000", file,
+    ]);
+    expect(made.exitCode).toBe(0);
+    await verifyBook(file, PRESETS.acx);
+    const result = await measureLoudness(file, PRESETS.acx);
+    expect(result.truePeak).toBeLessThanOrEqual(-3);
+    expect(Math.abs(result.integrated + 19)).toBeLessThanOrEqual(1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}, 60000);
