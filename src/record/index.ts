@@ -30,7 +30,9 @@ const USAGE = `Record an audiobook from a text or PDF file.
 
 Inputs live in <output-dir>/<name>/; each render gets its own
 <output-dir>/<name>/<YYYY-MM-DD-HHMM>/ run folder.
-Re-running the same command resumes an unfinished run.`;
+Re-running the same command resumes an unfinished run.
+An optional <output-dir>/<name>/lexicon.txt ("term = respelling" per line,
+# comments) corrects pronunciation across the whole book.`;
 
 const PROJECT_DIR = resolve(import.meta.dir, "../..");
 
@@ -152,6 +154,8 @@ async function main(): Promise<void> {
     log("Voice reference already prepared, reusing");
   }
 
+  const lexicon = `${bookDir}/lexicon.txt`;
+
   const options: RenderOptions = {
     projectDir: PROJECT_DIR,
     bookDir,
@@ -165,6 +169,7 @@ async function main(): Promise<void> {
     model: values.model!,
     ...(values.chapters ? { chapterPattern: values.chapters } : {}),
     ...(voice ? { voiceRef } : {}),
+    ...((await Bun.file(lexicon).exists()) ? { lexicon } : {}),
     ...((await Bun.file(refTextPath).exists())
       ? { refText: await Bun.file(refTextPath).text() }
       : {}),

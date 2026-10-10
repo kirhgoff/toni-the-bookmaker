@@ -101,6 +101,23 @@ Ambiguous tokens (`1,000`, `007`, `A12`, `1.2.3`) are left alone. Russian
 numerals are read in the nominative case regardless of context. Set
 `TONI_NORMALIZE=0` to turn all of this off.
 
+### Pronunciation lexicon
+
+Put a `lexicon.txt` next to the book's `source.txt`
+(`~/Downloads/audiobooks/<name>/`) to fix names and foreign words across the
+whole book, one `term = respelling` per line; `#` starts a comment:
+
+```
+Gandalf = Gand-alf
+New York = Noo Yorrk   # longest match wins
+Аня = Ан+я             # stress marks are kept
+```
+
+Matching is case-insensitive, on whole words, longest term first, in one pass
+(a respelling is never re-replaced), after normalisation and before Russian
+stress marking. It is also sent to remote hosts. A running render keeps the
+chunks it already made — start a new run (`-t`) to apply a changed lexicon.
+
 ### Russian stress marking
 
 Russian has no fixed stress rule, so a TTS model that cannot see the stressed

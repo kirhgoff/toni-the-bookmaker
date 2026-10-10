@@ -15,6 +15,7 @@ from toni.audio_encoder import (
     save_chunk_wav,
 )
 from toni.chunker import chunk_text, split_chunk
+from toni.lexicon import load_lexicon
 from toni.text_extractor import extract_text
 from toni.tts import get_engine, list_engines
 from toni.work_manager import WorkManager
@@ -179,6 +180,13 @@ def _process_chunk_recursive(
     help="Voice sample WAV file for voice cloning.",
 )
 @click.option(
+    "--lexicon",
+    "lexicon_file",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Pronunciation lexicon: one 'term = respelling' per line, # comments.",
+)
+@click.option(
     "-m",
     "--model",
     type=click.Choice(list_engines()),
@@ -232,6 +240,7 @@ def main(
     input_file: Path,
     output_file: Path | None,
     voice_file: Path | None,
+    lexicon_file: Path | None,
     model: str,
     chunk_pause: int,
     bitrate: str,
@@ -301,6 +310,7 @@ def main(
             text,
             max_chars=engine.max_chunk_chars,
             language=os.environ.get("TONI_LANGUAGE"),
+            lexicon=load_lexicon(lexicon_file) if lexicon_file else None,
         )
         total_chunks = len(chunks)
 

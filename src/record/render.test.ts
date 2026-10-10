@@ -1,0 +1,14 @@
+import { expect, test } from "bun:test";
+
+import { cliArgs, type RenderOptions } from "./render.ts";
+
+const OPTIONS: RenderOptions = {
+  projectDir: "/p", bookDir: "/b", runDir: "/b/run", name: "book", format: "m4b",
+  bitrate: "64k", pauseMs: 500, workers: 2, language: "en", model: "omni",
+};
+
+test("passes the lexicon from the input folder only when the book has one", () => {
+  expect(cliArgs(OPTIONS, "/books", "/books")).not.toContain("--lexicon");
+  const args = cliArgs({ ...OPTIONS, lexicon: "/b/lexicon.txt" }, "/books", "/books");
+  expect(args.slice(args.indexOf("--lexicon"))[1]).toBe("/books/lexicon.txt");
+});

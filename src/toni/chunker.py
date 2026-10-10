@@ -2,6 +2,7 @@
 
 import re
 
+from toni.lexicon import apply_lexicon
 from toni.text_normalization import normalization_enabled, normalize_speech_text
 
 ABBREVIATIONS = frozenset({
@@ -16,7 +17,10 @@ SPEAKABLE = re.compile(r"\w")
 
 
 def chunk_text(
-    text: str, max_chars: int = 500, language: str | None = None
+    text: str,
+    max_chars: int = 500,
+    language: str | None = None,
+    lexicon: dict[str, str] | None = None,
 ) -> list[str]:
     """Split text into chunks suitable for TTS processing.
 
@@ -28,6 +32,7 @@ def chunk_text(
         max_chars: Maximum characters per chunk.
         language: Language code; enables numbers, years and abbreviations to be
             spoken out unless TONI_NORMALIZE=0.
+        lexicon: Pronunciation respellings applied after normalisation.
 
     Returns:
         List of text chunks.
@@ -38,6 +43,7 @@ def chunk_text(
     text = normalize_text(text)
     if normalization_enabled():
         text = normalize_speech_text(text, language)
+    text = apply_lexicon(text, lexicon or {})
     paragraphs = split_into_paragraphs(text)
 
     chunks = []
