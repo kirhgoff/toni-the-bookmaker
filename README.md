@@ -50,9 +50,11 @@ tag that says what the run was about (`-t`, or by default the engine and where i
 ```
 source.txt                   the cleaned text that was actually read
 voice_ref.wav                 the trimmed voice sample
+voice_ref.source              which -v sample the reference came from
 voice_ref.txt                 its transcript (redone whenever the clip or the -v sample changes; dropped if the sample has no clear speech)
 2026-01-15-1430-omni-local/   one run
   book.m4b                 the finished audiobook, with chapters
+  voice_ref.source         the sample the run was started with
   render.log               progress and any errors
   work/                     intermediate audio chunks (safe to delete once you're happy)
 ```
@@ -64,7 +66,8 @@ tail -f ~/Downloads/audiobooks/book/2026-01-15-1430-omni-local/render.log
 ```
 
 **If it gets interrupted**, just run the exact same command again. If the
-latest run folder with the same tag hasn't finished, it resumes there instead of starting over;
+latest run folder with the same tag hasn't finished, it resumes there instead of starting over (passing a different `-v` starts a new run instead, because the
+finished chunks were read in the other voice);
 if the latest run already finished, a fresh run folder is created instead.
 
 **How long it takes:** roughly 6 hours for a full-length novel on a Mac

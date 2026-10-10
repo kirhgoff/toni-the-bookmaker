@@ -6,7 +6,7 @@ import { basename, resolve } from "node:path";
 import { resolvePreset, verifyBook } from "./loudness.ts";
 import {
   assertPlausibleTranscript, CHAPTER_TITLES_FILE, audioDuration, discardVoiceReference, fingerprintOf, needsRegeneration,
-  prepareCover, prepareSource, prepareVoiceReference,
+  prepareCover, prepareSource, prepareVoiceReference, voiceSource,
 } from "./prep.ts";
 import { renderLocal, renderRemote, type RenderOptions } from "./render.ts";
 import { log, requireCommand, run, runOrThrow } from "./shell.ts";
@@ -35,7 +35,7 @@ const USAGE = `Record an audiobook from a text, PDF or EPUB file.
 
 Inputs live in <output-dir>/<name>/; each render gets its own
 <output-dir>/<name>/<YYYY-MM-DD-HHMM>/ run folder.
-Re-running the same command resumes an unfinished run.`;
+Re-running the same command resumes an unfinished run; a different -v starts a new one.`;
 
 const PROJECT_DIR = resolve(import.meta.dir, "../..");
 
@@ -47,7 +47,7 @@ function timestampedRunName(now: Date, tag: string): string {
   return `${stamp}-${tag}`;
 }
 
-export async function pickRunDir(bookDir: string, name: string, format: string, tag: string): Promise<string> {
+export async function pickRunDir(bookDir: string, name: string, format: string, tag: string, source: string): Promise<string> {
   const entries = await readdir(bookDir, { withFileTypes: true }).catch(() => []);
   const runDirs = entries
     .filter((entry) => entry.isDirectory() && RUN_DIR_PATTERN.exec(entry.name)?.[1] === tag)
@@ -57,7 +57,13 @@ export async function pickRunDir(bookDir: string, name: string, format: string, 
 
   for (const runDir of runDirs) {
     const finished = await Bun.file(`${bookDir}/${runDir}/${name}.${format}`).exists();
-    if (!finished) return `${bookDir}/${runDir}`;
+    if (finished) continue;
+    const startedWith = await Bun.file(`${bookDir}/${runDir}/voice_ref.source`).text().catch(() => undefined);
+    if (startedWith !== undefined && startedWith.trim() !== source) {
+      log(`  ${runDir} was started with a different voice sample, starting a new run`);
+      continue;
+    }
+    return `${bookDir}/${runDir}`;
   }
 
   return `${bookDir}/${timestampedRunName(new Date(), tag)}`;
@@ -123,8 +129,10 @@ async function main(): Promise<void> {
   await mkdir(bookDir, { recursive: true });
 
   const tag = (values.tag ?? `${values.model}-${values.host ?? "local"}`).replace(/[^\w.-]+/g, "-");
-  const runDir = await pickRunDir(bookDir, name, values.format!, tag);
+  const source = voice ? voiceSource(await Bun.file(voice).bytes()) : "none";
+  const runDir = await pickRunDir(bookDir, name, values.format!, tag, source);
   await mkdir(runDir, { recursive: true });
+  await Bun.write(`${runDir}/voice_ref.source`, source);
 
   if (values.detach && !process.env.TONI_RECORD_CHILD) {
     await detach(Bun.argv.slice(2), `${runDir}/render.log`);
@@ -138,12 +146,12 @@ async function main(): Promise<void> {
   await requireCommand("uv", "See https://astral.sh/uv");
   await requireCommand("ffmpeg", "brew install ffmpeg");
 
-  const source = `${bookDir}/source.txt`;
-  if (await Bun.file(source).exists()) {
+  const sourceText = `${bookDir}/source.txt`;
+  if (await Bun.file(sourceText).exists()) {
     log("Source already prepared, reusing");
   } else {
     log("Preparing text");
-    await prepareSource(input, source, PROJECT_DIR);
+    await prepareSource(input, sourceText, PROJECT_DIR);
   }
 
   const coverFile = values.format === "m4b"
@@ -160,12 +168,11 @@ async function main(): Promise<void> {
   const refSourcePath = `${bookDir}/voice_ref.source`;
   const storedText = async (path: string) => (await Bun.file(path).exists()) ? await Bun.file(path).text() : undefined;
   if (voice) {
-    const sourceFingerprint = await fingerprintOf(voice);
-    if (needsRegeneration(await Bun.file(voiceRef).exists(), await storedText(refSourcePath), sourceFingerprint)) {
+    if (needsRegeneration(await Bun.file(voiceRef).exists(), await storedText(refSourcePath), source)) {
       log("Preparing voice reference");
       await discardVoiceReference(bookDir);
       await prepareVoiceReference(voice, voiceRef);
-      await Bun.write(refSourcePath, sourceFingerprint);
+      await Bun.write(refSourcePath, source);
     } else {
       log("Voice reference already prepared, reusing");
     }
