@@ -101,21 +101,21 @@ def _chunk_plain(
     return merge_unspeakable(chunks, max_chars)
 
 
-def end_with_punctuation(chunk: str) -> str:
+def end_with_punctuation(chunk: str, mark: str = ".") -> str:
     """Give a piece cut from a long paragraph a terminal mark for finished intonation."""
-    return chunk if TERMINAL_PUNCTUATION.search(chunk) else chunk + "."
+    return chunk if TERMINAL_PUNCTUATION.search(chunk) else chunk + mark
 
 
 def merge_unspeakable(chunks: list[str], max_chars: int) -> list[str]:
-    """Fold chunks with no letters or digits into a neighbour; drop them if it does not fit."""
+    """Fold chunks with no letters or digits into the previous or next chunk; drop them if neither fits."""
     merged: list[str] = []
     carry = ""
     for chunk in chunks:
         if not SPEAKABLE.search(chunk):
             if merged and len(merged[-1]) + len(chunk) + 1 <= max_chars:
                 merged[-1] = f"{merged[-1]} {chunk}"
-            elif not merged:
-                carry = chunk
+            else:
+                carry = f"{carry} {chunk}" if carry else chunk
             continue
         if carry and len(carry) + len(chunk) + 1 <= max_chars:
             chunk = f"{carry} {chunk}"
@@ -266,7 +266,7 @@ def split_long_sentence(sentence: str, max_chars: int) -> list[str]:
                         current = current + " " + word if current else word
                     else:
                         if current:
-                            chunks.append(current.strip())
+                            chunks.append(end_with_punctuation(current.strip(), ","))
                         current = word
             else:
                 current = part

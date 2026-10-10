@@ -33,7 +33,7 @@ def test_pieces_cut_from_long_paragraph_end_with_punctuation():
     text = " ".join(["word"] * 40)
     chunks = chunk_text(text, max_chars=60)
     assert len(chunks) > 1
-    assert all(chunk.endswith(".") for chunk in chunks)
+    assert chunks[-1].endswith(".")
     assert all(len(chunk) <= 61 for chunk in chunks)
 
 
@@ -45,9 +45,23 @@ def test_clause_cut_keeps_its_clause_mark():
 
 def test_decimal_comma_is_not_a_clause_boundary():
     chunks = chunk_text("aaaa 3,14 bbbb", max_chars=10)
-    assert not any(chunk.endswith(",") for chunk in chunks)
     assert any("3,14" in chunk for chunk in chunks)
 
 
 def test_short_heading_is_left_alone():
     assert chunk_text("CHAPTER 1\n\nIt began.") == ["CHAPTER 1", "It began."]
+
+
+def test_word_boundary_cuts_end_with_a_clause_mark_and_the_last_piece_with_a_full_stop():
+    chunks = chunk_text(" ".join(["word"] * 40), max_chars=60)
+    assert all(chunk.endswith(",") for chunk in chunks[:-1])
+
+
+def test_sentence_boundary_pieces_keep_the_full_stop():
+    chunks = chunk_text(" ".join(["One two three four."] * 6), max_chars=45)
+    assert len(chunks) > 1
+    assert all(chunk.endswith(".") for chunk in chunks)
+
+
+def test_unspeakable_chunk_merges_into_the_next_when_the_previous_is_full():
+    assert chunk_text("Hello there.\n\n—\n\nNext one.", max_chars=13) == ["Hello there.", "— Next one."]
