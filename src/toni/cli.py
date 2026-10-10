@@ -208,7 +208,7 @@ def _process_chunk_recursive(
     "--paragraph-pause",
     type=int,
     default=None,
-    help="Pause after a paragraph in milliseconds. Default: twice --chunk-pause.",
+    help="Pause after a paragraph in milliseconds, never shorter than the sentence pause. Default: twice --chunk-pause.",
 )
 @click.option(
     "--cover",

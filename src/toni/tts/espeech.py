@@ -27,7 +27,7 @@ MAX_GAP_MS = 300
 def tighten_silence(audio: np.ndarray, sample_rate: int) -> np.ndarray:
     if audio.size == 0:
         return audio
-    threshold = silence_threshold(audio)
+    threshold = silence_threshold(float(np.max(np.abs(audio))))
     if not np.any(np.abs(audio) > threshold):
         return audio[: int(MAX_GAP_MS / 1000 * sample_rate)]
     audio = trim_edges(audio, sample_rate, EDGE_SILENCE_MS)

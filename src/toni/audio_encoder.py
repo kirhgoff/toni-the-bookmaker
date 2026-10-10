@@ -79,12 +79,20 @@ MAX_HEADING_CHARS = 60
 
 SILENCE_THRESHOLD_DB = -40.0
 SILENCE_FLOOR_DB = -50.0
+FLOOR_BELOW_PEAK_DB = -20.0
+FRAME_MS = 10
 EDGE_MARGIN_MS = 40
 
 
-def silence_threshold(audio: np.ndarray) -> float:
-    relative = 10 ** (SILENCE_THRESHOLD_DB / 20) * float(np.max(np.abs(audio)))
-    return max(relative, 10 ** (SILENCE_FLOOR_DB / 20))
+def silence_threshold(peak: float) -> float:
+    floor = min(10 ** (SILENCE_FLOOR_DB / 20), peak * 10 ** (FLOOR_BELOW_PEAK_DB / 20))
+    return max(peak * 10 ** (SILENCE_THRESHOLD_DB / 20), floor)
+
+
+def frame_levels(audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, int]:
+    frame = max(int(sample_rate * FRAME_MS / 1000), 1)
+    padded = np.pad(audio, (0, -audio.size % frame))
+    return np.sqrt(np.mean(padded.reshape(-1, frame) ** 2, axis=1)), frame
 
 
 def trim_edges(
@@ -94,10 +102,11 @@ def trim_edges(
     if audio.size == 0:
         return audio
     margin = int(margin_ms / 1000 * sample_rate)
-    loud = np.flatnonzero(np.abs(audio) > silence_threshold(audio))
+    levels, frame = frame_levels(audio, sample_rate)
+    loud = np.flatnonzero(levels > silence_threshold(float(levels.max())))
     if loud.size == 0:
         return audio[:margin]
-    return audio[max(loud[0] - margin, 0) : loud[-1] + margin]
+    return audio[max(loud[0] * frame - margin, 0) : (loud[-1] + 1) * frame + margin]
 
 
 CHAPTERED_FORMATS = {".m4b", ".m4a", ".mp4"}
@@ -120,7 +129,7 @@ def gap_after(
     paragraph_pause_ms: int,
 ) -> int:
     if ends_paragraph:
-        return paragraph_pause_ms
+        return max(paragraph_pause_ms, pause_after(text, pause_ms))
     return pause_after(text, pause_ms)
 
 

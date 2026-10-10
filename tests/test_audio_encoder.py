@@ -140,12 +140,26 @@ def test_trim_edges_cuts_a_noise_floor_tail_on_a_quiet_chunk():
     assert len(trimmed) < len(quiet) + 2 * int(0.04 * SR) + 200
 
 
+def test_trim_edges_keeps_speech_on_a_very_quiet_chunk():
+    audio = np.concatenate([np.zeros(SR), 0.001 * tone(300), np.zeros(SR)])
+    trimmed = trim_edges(audio, SR)
+    assert abs(len(trimmed) - (len(tone(300)) + 2 * int(0.04 * SR))) < 300
+
+
+def test_trim_edges_cuts_a_noise_bed_below_the_floor():
+    rng = np.random.default_rng(1)
+    bed = (10 ** (-55 / 20) * rng.standard_normal(3 * SR)).astype(np.float32)
+    bed[SR : 2 * SR] += tone(1000)
+    assert len(trim_edges(bed, SR)) <= SR + 2 * int(0.04 * SR) + 600
+
+
 def test_zero_paragraph_pause_disables_the_extra_pause(tmp_path):
     paths = [write_wav(tmp_path / f"{i}.wav", 500) for i in range(2)]
     concatenate_with_ffmpeg(
         paths, tmp_path / "out.mp3", 24000, pause_ms=200, paragraph_ends=[True, False], paragraph_pause_ms=0
     )
-    assert (tmp_path / "silence_0.wav").exists()
+    assert (tmp_path / "silence_200.wav").exists()
+    assert not (tmp_path / "silence_0.wav").exists()
     assert not (tmp_path / "silence_400.wav").exists()
 
 
@@ -154,8 +168,8 @@ def test_build_chapters_zero_paragraph_pause_is_respected(tmp_path):
     chapters, total = build_chapters(
         paths, ["Text.", "CHAPTER 2"], pause_ms=400, paragraph_ends=[True, False], paragraph_pause_ms=0
     )
-    assert chapters == [(1000, "CHAPTER 2")]
-    assert total == 2000
+    assert chapters == [(1400, "CHAPTER 2")]
+    assert total == 2400
 
 
 def test_trim_edges_all_silent_is_safe():
@@ -167,6 +181,8 @@ def test_gap_after_paragraph_uses_paragraph_pause():
     assert gap_after("Он ушел.", True, 500, 1000) == 1000
     assert gap_after("Он ушел.", False, 500, 1000) == 500
     assert gap_after("сказал он,", False, 500, 1000) == 125
+    assert gap_after("Он ушел.", True, 500, 0) == 500
+    assert gap_after("сказал он,", True, 500, 100) == 125
 
 
 def test_build_chapters_paragraph_boundary_gets_paragraph_pause(tmp_path):
