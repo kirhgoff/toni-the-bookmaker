@@ -124,7 +124,7 @@ def merge_unspeakable(
                 carry = (raw, spoken)
             continue
         if carry and len(carry[1]) + len(spoken) + 1 <= max_chars:
-            raw, spoken = f"{carry[0]} {raw}", f"{carry[1]} {spoken}"
+            spoken = f"{carry[1]} {spoken}"
         carry = None
         merged.append((raw, spoken))
     return merged

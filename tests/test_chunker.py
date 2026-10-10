@@ -75,3 +75,19 @@ def test_chunks_keep_their_pre_normalisation_text_for_chapter_detection():
         ("Глава 12", "Глава двенадцать"),
         ("Аня взяла 3 яблока.", "Ан+я взяла три яблока."),
     ]
+
+
+@pytest.mark.parametrize(
+    "separator, heading, pattern",
+    [("* * *", "CHAPTER 2", r"^\s*CHAPTER"), ("* * *", "Глава 14", r"^Глава \d+")],
+)
+def test_scene_break_carried_into_the_next_chunk_keeps_its_heading_detectable(separator, heading, pattern):
+    import re
+
+    from toni.chunker import chunk_with_marks
+
+    filler = "x" * 30
+    chunks = chunk_with_marks(f"{filler}\n\n{separator}\n\n{heading}", max_chars=len(filler))
+    assert [c.raw_text for c in chunks] == [filler, heading]
+    assert chunks[1].text == f"{separator} {heading}"
+    assert re.match(pattern, chunks[1].raw_text)
