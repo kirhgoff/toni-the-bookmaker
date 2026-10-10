@@ -85,3 +85,18 @@ def test_manifest_stays_compatible_and_split_chunk_pause_follows_last_sub_chunk(
     work._manifest.chunks["1"] = legacy
     work.save_manifest()
     assert work.get_extra_pauses(["1"]) == [0]
+
+
+@pytest.mark.parametrize("tag, expected_ms", [("[PAUSE]", 350), ("[Pause 1s]", 1000), ("[ pause ]", 350), ("[pause 2 S]", 2000)])
+def test_tag_variants_in_case_and_spacing_parse_and_are_not_spoken(tag, expected_ms):
+    result = marks(f"A. {tag} B.")
+    assert result == [("A.", expected_ms, None), ("B.", 0, None)]
+
+
+def test_slow_tag_variants_parse():
+    assert marks("A. [ SLOW ]B.[ /Slow ] C.") == [("A.", 0, None), ("B.", 0, 0.85), ("C.", 0, None)]
+
+
+def test_pause_after_an_unspeakable_segment_is_not_lost():
+    result = marks("Hello [pause] — [pause 2s] world.")
+    assert result == [("Hello", 2350, None), ("world.", 0, None)]

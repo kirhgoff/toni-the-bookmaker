@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 
 from toni.lexicon import apply_lexicon
-from toni.pause_tags import parse_pause_tags
+from toni.pause_tags import MAX_PAUSE_MS, parse_pause_tags
 from toni.text_normalization import normalization_enabled, normalize_speech_text
 
 ABBREVIATIONS = frozenset({
@@ -49,6 +49,8 @@ def chunk_with_marks(
         chunks.extend(Chunk(piece, speed=segment.speed) for piece in pieces)
         if pieces:
             chunks[-1].pause_ms = segment.pause_ms
+        elif chunks:
+            chunks[-1].pause_ms = min(chunks[-1].pause_ms + segment.pause_ms, MAX_PAUSE_MS)
     return chunks
 
 

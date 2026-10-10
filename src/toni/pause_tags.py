@@ -8,8 +8,8 @@ DEFAULT_PAUSE_MS = 350
 MAX_PAUSE_MS = 10_000
 SLOW_SPEED = 0.85
 
-TAG_CANDIDATE = re.compile(r"\[/?(?:pause|slow)(?:\s[^\]]*)?\]")
-PAUSE_TAG = re.compile(r"\[pause(?:\s+(\d+(?:\.\d+)?)\s*(ms|s))?\]")
+TAG_CANDIDATE = re.compile(r"\[\s*/?\s*(?:pause|slow)\b[^\]]*\]", re.I)
+PAUSE_TAG = re.compile(r"\[\s*pause(?:\s+(\d+(?:\.\d+)?)\s*(ms|s))?\s*\]", re.I)
 
 
 @dataclass
@@ -36,8 +36,9 @@ def parse_pause_tags(text: str) -> list[Segment]:
     for match in TAG_CANDIDATE.finditer(text):
         tag = match.group(0)
         pause = PAUSE_TAG.fullmatch(tag)
-        opens_slow = tag == "[slow]" and not slow
-        closes_slow = tag == "[/slow]" and slow
+        compact_tag = re.sub(r"\s+", "", tag).lower()
+        opens_slow = compact_tag == "[slow]" and not slow
+        closes_slow = compact_tag == "[/slow]" and slow
         if not (pause or opens_slow or closes_slow):
             warnings.warn(f"Malformed pacing tag left as text: {tag}")
             continue
@@ -59,5 +60,5 @@ def _pause_ms(match: re.Match) -> int:
     amount, unit = match.groups()
     if amount is None:
         return DEFAULT_PAUSE_MS
-    milliseconds = float(amount) * (1000 if unit == "s" else 1)
+    milliseconds = float(amount) * (1000 if unit.lower() == "s" else 1)
     return min(round(milliseconds), MAX_PAUSE_MS)
