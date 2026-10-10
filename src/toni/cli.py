@@ -297,7 +297,11 @@ def main(
 
         engine = get_engine(model)
 
-        chunks = chunk_text(text, max_chars=engine.max_chunk_chars)
+        chunks = chunk_text(
+            text,
+            max_chars=engine.max_chunk_chars,
+            language=os.environ.get("TONI_LANGUAGE"),
+        )
         total_chunks = len(chunks)
 
         if verbose:

@@ -2,6 +2,8 @@
 
 import re
 
+from toni.text_normalization import normalization_enabled, normalize_speech_text
+
 ABBREVIATIONS = frozenset({
     "mr", "mrs", "ms", "dr", "prof", "st", "jr", "sr", "vs", "etc",
     "e.g", "i.e", "a.m", "p.m",
@@ -13,7 +15,9 @@ TERMINAL_PUNCTUATION = re.compile(r"[.!?…,:;\-—][\"»”\')\]]*$")
 SPEAKABLE = re.compile(r"\w")
 
 
-def chunk_text(text: str, max_chars: int = 500) -> list[str]:
+def chunk_text(
+    text: str, max_chars: int = 500, language: str | None = None
+) -> list[str]:
     """Split text into chunks suitable for TTS processing.
 
     Chunks are split at sentence boundaries when possible, respecting
@@ -22,6 +26,8 @@ def chunk_text(text: str, max_chars: int = 500) -> list[str]:
     Args:
         text: The input text to chunk.
         max_chars: Maximum characters per chunk.
+        language: Language code; enables numbers, years and abbreviations to be
+            spoken out unless TONI_NORMALIZE=0.
 
     Returns:
         List of text chunks.
@@ -30,6 +36,8 @@ def chunk_text(text: str, max_chars: int = 500) -> list[str]:
         return []
 
     text = normalize_text(text)
+    if normalization_enabled():
+        text = normalize_speech_text(text, language)
     paragraphs = split_into_paragraphs(text)
 
     chunks = []

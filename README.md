@@ -91,6 +91,16 @@ The default engine, `omni`, can narrate in any of 600+ languages — pass one
 with `-l`, e.g. `-l ru` for Russian. `espeech` and `qwen` also support
 Russian; `pocket` and `kani` only support English.
 
+### Numbers, years and abbreviations
+
+For English and Russian the text is normalised before chunking: numbers,
+years (`1812` becomes "eighteen twelve" in English) and common abbreviations
+before a capitalised word (`Dr. Smith`) are spoken out, repeated punctuation
+is capped at three marks, and `omni` also enables its own English normaliser.
+Ambiguous tokens (`1,000`, `007`, `A12`, `1.2.3`) are left alone. Russian
+numerals are read in the nominative case regardless of context. Set
+`TONI_NORMALIZE=0` to turn all of this off.
+
 ### Russian stress marking
 
 Russian has no fixed stress rule, so a TTS model that cannot see the stressed
