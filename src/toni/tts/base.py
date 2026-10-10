@@ -32,6 +32,7 @@ class TTSEngine(ABC):
         pass
 
     supports_speed = False
+    supports_batching = False
 
     @abstractmethod
     def load(self) -> None:

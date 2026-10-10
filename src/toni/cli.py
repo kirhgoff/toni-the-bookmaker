@@ -36,6 +36,9 @@ from toni.tts import get_engine, list_engines
 from toni.work_manager import WorkManager, run_fingerprint
 
 
+MAX_BATCH = 16
+
+
 def get_default_workers() -> int:
     """Get default number of workers (half of CPU cores, minimum 1)."""
     return max(1, (os.cpu_count() or 2) // 2)
@@ -416,7 +419,7 @@ def _chunk_marks(chunk) -> dict:
 )
 @click.option(
     "--batch",
-    type=int,
+    type=click.IntRange(0, MAX_BATCH),
     default=0,
     envvar="TONI_BATCH",
     help="Chunks per model call for engines that batch (0 = auto, max 16). "
@@ -592,10 +595,6 @@ def main(
         voice_file_for_tts = copied_voice
         engine.unload()
 
-    width = min(batch or get_engine(manifest.model).batch_width(), 16)
-    if width > 1 and workers > 1:
-        click.echo("Engine batches in one process; --workers ignored")
-
     thresholds = Thresholds(qc_wer, qc_ratio_min, qc_ratio_max)
     ref_text = os.environ.get("TONI_REF_TEXT")
     ref_seconds = _reference_seconds(voice_file_for_tts) if ref_text else None
@@ -607,7 +606,7 @@ def main(
     totals = [0, 0, 0]
     while True:
         render_pending(
-            work, manifest.model, voice_file_for_tts, max_retries, workers, width, verbose
+            work, manifest.model, voice_file_for_tts, max_retries, workers, batch, verbose
         )
         if not qc or not work.get_unchecked_chunks():
             break
@@ -693,18 +692,19 @@ def render_pending(
     voice_file: Path | None,
     max_retries: int,
     workers: int,
-    width: int,
+    batch: int,
     verbose: bool,
 ) -> None:
     pending = work.get_pending_chunks()
     if not pending:
         click.echo("No pending chunks to process.")
         return
-    click.echo(
-        f"Processing {len(pending)} chunks with {workers} worker(s), batch {width}..."
-    )
-    if workers == 1 or width > 1:
-        process_chunks_single(work, model, voice_file, max_retries, verbose, width)
+    batching = batch != 1 and get_engine(model).supports_batching
+    if batching and workers > 1:
+        click.echo("Engine batches in one process; --workers ignored")
+    click.echo(f"Processing {len(pending)} chunks with {workers} worker(s)...")
+    if workers == 1 or batching:
+        process_chunks_single(work, model, voice_file, max_retries, verbose, batch)
     else:
         process_chunks_parallel(work, model, voice_file, max_retries, workers, verbose)
 
@@ -715,11 +715,12 @@ def process_chunks_single(
     voice_file: Path | None,
     max_retries: int,
     verbose: bool,
-    width: int = 1,
+    batch: int = 1,
 ) -> None:
-    """Process pending chunks in one process, `width` chunks per model call."""
     engine = get_engine(model)
     engine.load()
+    width = min(batch or engine.batch_width(), MAX_BATCH)
+    click.echo(f"Batch width {width}")
 
     pending = work.get_pending_chunks()
 

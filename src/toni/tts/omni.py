@@ -34,6 +34,7 @@ class OmniVoiceEngine(TTSEngine):
     """
 
     supports_speed = True
+    supports_batching = True
 
     def __init__(self):
         self._model = None
@@ -52,6 +53,9 @@ class OmniVoiceEngine(TTSEngine):
     @property
     def max_chunk_chars(self) -> int:
         return 300
+
+    def _on_cuda(self) -> bool:
+        return self._resolve_device().startswith("cuda")
 
     def _resolve_device(self) -> str:
         import torch
@@ -83,7 +87,7 @@ class OmniVoiceEngine(TTSEngine):
         self._compile_llm()
 
     def _compile_llm(self) -> None:
-        if os.environ.get("TONI_OMNI_COMPILE") != "1" or self._resolve_device() != "cuda":
+        if os.environ.get("TONI_OMNI_COMPILE") != "1" or not self._on_cuda():
             return
         try:
             import torch
@@ -169,9 +173,9 @@ class OmniVoiceEngine(TTSEngine):
     def batch_width(self) -> int:
         import torch
 
-        if self._resolve_device() != "cuda":
+        if not self._on_cuda():
             return 2
-        free_gb = torch.cuda.mem_get_info()[0] / 2**30
+        free_gb = torch.cuda.mem_get_info(self._resolve_device())[0] / 2**30
         return 1 if free_gb < 2 else 2 if free_gb < 6 else 4 if free_gb < 12 else 8
 
     def unload(self) -> None:

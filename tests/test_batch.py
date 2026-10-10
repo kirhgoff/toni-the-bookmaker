@@ -17,6 +17,13 @@ def test_batches_render_every_chunk_once_in_length_order(fake, tmp_path) -> None
 
 
 @requires_ffmpeg
+def test_auto_width_is_asked_after_the_model_is_loaded(fake, tmp_path) -> None:
+    fake.width = 2
+    run_toni(tmp_path, TEXT)
+    assert fake.width_asked_while_loaded == [True]
+
+
+@requires_ffmpeg
 def test_failing_batch_falls_back_per_chunk(fake, tmp_path) -> None:
     fake.width = 2
     fake.fail_texts = {CHUNKS[3]}
@@ -44,3 +51,13 @@ def test_batches_never_mix_speeds(tmp_path) -> None:
     for i in range(4):
         work.save_chunk_text(str(i), "x" * (i + 1))
     assert _batches(work, ["0", "1", "2", "3"], 2) == [["0", "2"], ["1", "3"]]
+
+
+def test_negative_batch_is_rejected(fake, tmp_path) -> None:
+    from click.testing import CliRunner
+
+    from toni.cli import main
+
+    (tmp_path / "b.txt").write_text("Hello there.")
+    result = CliRunner().invoke(main, ["-i", str(tmp_path / "b.txt"), "--batch", "-1"])
+    assert result.exit_code == 2 and "--batch" in result.output

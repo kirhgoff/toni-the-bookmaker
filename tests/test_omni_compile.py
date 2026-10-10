@@ -66,3 +66,20 @@ def test_failing_compiled_run_retries_eagerly_once(cuda_engine, capsys) -> None:
     assert cuda_engine._model.llm == "eager"
     assert "using eager mode" in capsys.readouterr().err
     assert len(cuda_engine.generate_batch(["a"])) == 1
+
+
+def test_numbered_cuda_device_compiles(cuda_engine, monkeypatch) -> None:
+    monkeypatch.setattr(cuda_engine, "_resolve_device", lambda: "cuda:1")
+    cuda_engine._model = FakeModel()
+    cuda_engine._compile_llm()
+    assert cuda_engine._model.llm == "compiled"
+
+
+def test_numbered_cuda_device_sizes_batches_by_that_device(monkeypatch) -> None:
+    import torch
+
+    asked = []
+    monkeypatch.setenv("TONI_OMNI_DEVICE", "cuda:1")
+    monkeypatch.setattr(torch.cuda, "mem_get_info", lambda device: asked.append(device) or (20 * 2**30, 0))
+    assert OmniVoiceEngine().batch_width() == 8
+    assert asked == ["cuda:1"]

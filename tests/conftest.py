@@ -26,6 +26,8 @@ class FakeEngine(TTSEngine):
         self.takes: list[tuple[str, int]] = []
         self.batches: list[list[str]] = []
         self.width = 1
+        self.loaded = False
+        self.width_asked_while_loaded: list[bool] = []
         self.fail_texts: set[str] = set()
         self.bad_takes: dict[str, int] = {}
         self.transcribed = 0
@@ -38,9 +40,13 @@ class FakeEngine(TTSEngine):
     max_chunk_chars = property(lambda self: 40)
 
     def load(self) -> None:
-        pass
+        self.loaded = True
+
+    def unload(self) -> None:
+        self.loaded = False
 
     def batch_width(self) -> int:
+        self.width_asked_while_loaded.append(self.loaded)
         return self.width
 
     def _take(self, text: str) -> np.ndarray:
