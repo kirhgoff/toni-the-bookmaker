@@ -15,6 +15,11 @@ from toni.chunker import chunk_text, split_into_sentences
         ("Я позвонил им. Они ответили.", ["Я позвонил им.", "Они ответили."]),
         ("Книги, журналы и др. Потом он ушел.", ["Книги, журналы и др.", "Потом он ушел."]),
         ("Pi is 3.14 roughly. Next point.", ["Pi is 3.14 roughly.", "Next point."]),
+        ("So did I. Then we left.", ["So did I.", "Then we left."]),
+        ("The answer was no. She left.", ["The answer was no.", "She left."]),
+        ("Take vitamin C. Next day.", ["Take vitamin C.", "Next day."]),
+        ("— Кто? — Я. Потом ушёл.", ["— Кто? — Я.", "Потом ушёл."]),
+        ("Plan B. Then.", ["Plan B.", "Then."]),
     ],
 )
 def test_split_into_sentences_respects_abbreviations(text, expected):

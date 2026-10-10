@@ -9,7 +9,7 @@ from toni.text_normalization import normalization_enabled, normalize_speech_text
 
 ABBREVIATIONS = frozenset({
     "mr", "mrs", "ms", "dr", "prof", "st", "jr", "sr", "vs", "etc",
-    "e.g", "i.e", "a.m", "p.m", "vol", "ch", "no", "fig", "p", "pp",
+    "e.g", "i.e", "a.m", "p.m", "vol", "ch", "fig",
     "т.е", "т.д", "т.п", "г", "гг", "ул", "проф",
 })
 INITIAL = re.compile(r"[A-ZА-ЯЁ]")
@@ -230,22 +230,28 @@ def split_into_sentences(text: str) -> list[str]:
     sentences = []
     start = 0
     for boundary in SENTENCE_BOUNDARY.finditer(text):
-        if not ends_with_abbreviation(text[start:boundary.start()]):
+        if not ends_with_abbreviation(text[start:boundary.start()], text[boundary.end():]):
             sentences.append(text[start:boundary.start()])
             start = boundary.end()
     sentences.append(text[start:])
     return [s.strip() for s in sentences if s.strip()]
 
 
-def ends_with_abbreviation(sentence: str) -> bool:
+def _is_initial(word: str) -> bool:
+    return word.endswith(".") and bool(INITIAL.fullmatch(word.lstrip("\"«'(").rstrip(".")))
+
+
+def ends_with_abbreviation(sentence: str, following: str = "") -> bool:
     if not sentence.endswith("."):
         return False
     words = sentence.split()
     candidates = [words[-1], "".join(words[-2:])]
-    return any(
-        word.lstrip("\"«'(").rstrip(".").lower() in ABBREVIATIONS
-        for word in candidates
-    ) or INITIAL.fullmatch(words[-1].lstrip("\"«'(").rstrip("."))
+    if any(word.lstrip("\"«'(").rstrip(".").lower() in ABBREVIATIONS for word in candidates):
+        return True
+    next_words = following.split()
+    return _is_initial(words[-1]) and (
+        (len(words) > 1 and _is_initial(words[-2])) or (bool(next_words) and _is_initial(next_words[0]))
+    )
 
 
 def split_long_sentence(sentence: str, max_chars: int) -> list[str]:
