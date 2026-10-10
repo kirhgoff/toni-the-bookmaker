@@ -92,6 +92,7 @@ BLOCK_TAGS = {
 HEADING_TAGS = {"h1", "h2", "h3"}
 SKIPPED_TAGS = {"script", "style", "head"}
 CONTAINER_PATH = "META-INF/container.xml"
+COVER_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
 
 class _TextBlocks(HTMLParser):
@@ -240,31 +241,56 @@ def _guide_front_matter(root, opf_dir: str) -> set[str]:
     }
 
 
-def extract_epub(file_path: Path) -> tuple[str, list[str]]:
-    """Narratable text in spine order, plus the section titles in reading order."""
+def _open_epub(file_path: Path) -> zipfile.ZipFile:
     try:
         archive = zipfile.ZipFile(file_path)
     except zipfile.BadZipFile as error:
         raise ValueError(f"Not a valid EPUB: {file_path}") from error
+    _check_archive_size(archive)
+    return archive
 
-    with archive:
-        _check_archive_size(archive)
-        container = ElementTree.fromstring(_read_entry(archive, CONTAINER_PATH))
-        rootfile = next((e for e in container.iter() if _local(e.tag) == "rootfile"), None)
-        if rootfile is None or not rootfile.get("full-path"):
-            raise ValueError("not a valid EPUB: container.xml names no package file")
-        opf_path = rootfile.get("full-path")
-        opf_dir = posixpath.dirname(opf_path)
-        opf = ElementTree.fromstring(_read_entry(archive, opf_path))
 
-        items = {
-            e.get("id"): {
-                "path": _resolve(opf_dir, e.get("href")),
-                "properties": (e.get("properties") or "").split(),
-            }
-            for e in opf.iter()
-            if _local(e.tag) == "item" and e.get("href")
+def _package(archive: zipfile.ZipFile):
+    container = ElementTree.fromstring(_read_entry(archive, CONTAINER_PATH))
+    rootfile = next((e for e in container.iter() if _local(e.tag) == "rootfile"), None)
+    if rootfile is None or not rootfile.get("full-path"):
+        raise ValueError("not a valid EPUB: container.xml names no package file")
+    opf_path = rootfile.get("full-path")
+    opf_dir = posixpath.dirname(opf_path)
+    opf = ElementTree.fromstring(_read_entry(archive, opf_path))
+    items = {
+        e.get("id"): {
+            "path": _resolve(opf_dir, e.get("href")),
+            "properties": (e.get("properties") or "").split(),
         }
+        for e in opf.iter()
+        if _local(e.tag) == "item" and e.get("href")
+    }
+    return opf, opf_dir, items
+
+
+def epub_cover(file_path: Path) -> tuple[str, bytes] | None:
+    """The EPUB's cover image as (extension, bytes), if it declares a JPEG or PNG one."""
+    with _open_epub(file_path) as archive:
+        opf, _, items = _package(archive)
+        declared = [i for i in items.values() if "cover-image" in i["properties"]]
+        legacy = next(
+            (e.get("content") for e in opf.iter() if _local(e.tag) == "meta" and e.get("name") == "cover"),
+            None,
+        )
+        if not declared and legacy in items:
+            declared = [items[legacy]]
+        for item in declared:
+            extension = posixpath.splitext(item["path"])[1].lower()
+            if extension in COVER_EXTENSIONS and item["path"] in archive.namelist():
+                return (".jpg" if extension == ".jpeg" else extension), _read_entry(archive, item["path"])
+    return None
+
+
+def extract_epub(file_path: Path) -> tuple[str, list[str]]:
+    """Narratable text in spine order, plus the section titles in reading order."""
+    with _open_epub(file_path) as archive:
+        opf, opf_dir, items = _package(archive)
         spine = next(e for e in opf.iter() if _local(e.tag) == "spine")
         spine_paths = [
             items[ref.get("idref")]["path"]
@@ -319,9 +345,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Extract narratable text from a book file.")
     parser.add_argument("input", type=Path)
     parser.add_argument("-o", "--output", type=Path, required=True)
+    parser.add_argument("--cover-dir", type=Path, help="Save the EPUB's cover here as cover.jpg/png unless one exists.")
     args = parser.parse_args()
     if args.input.suffix.lower() == ".epub":
         text, titles = extract_epub(args.input)
+        if args.cover_dir and not any((args.cover_dir / f"cover{e}").exists() for e in COVER_EXTENSIONS):
+            cover = epub_cover(args.input)
+            if cover:
+                (args.cover_dir / f"cover{cover[0]}").write_bytes(cover[1])
         if titles:
             chapter_titles_path(args.output).write_text("\n".join(titles) + "\n", encoding="utf-8")
     else:

@@ -5,6 +5,12 @@ import { join } from "node:path";
 
 import { assertPlausibleTranscript, countWords, discardVoiceReference, fingerprintOf, needsRegeneration, prepareCover } from "./prep.ts";
 
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+const GIF = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
+
 async function bookDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "toni-cover-"));
 }
@@ -12,24 +18,36 @@ async function bookDir(): Promise<string> {
 test("finds cover.jpg or cover.png next to the book", async () => {
   const dir = await bookDir();
   expect(await prepareCover(undefined, dir)).toBeUndefined();
-  await writeFile(join(dir, "cover.png"), "x");
+  await writeFile(join(dir, "cover.png"), PNG);
   expect(await prepareCover(undefined, dir)).toBe("cover.png");
 });
 
 test("copies an explicit cover into the book folder under a normalised name", async () => {
   const dir = await bookDir();
   const elsewhere = await bookDir();
-  await writeFile(join(elsewhere, "Art.JPG"), "x");
-  expect(await prepareCover(join(elsewhere, "Art.JPG"), dir)).toBe("cover.jpg");
-  expect(await Bun.file(join(dir, "cover.jpg")).exists()).toBe(true);
+  await writeFile(join(elsewhere, "Art.PNG"), PNG);
+  expect(await prepareCover(join(elsewhere, "Art.PNG"), dir)).toBe("cover.png");
+  expect(await Bun.file(join(dir, "cover.png")).exists()).toBe(true);
 });
 
-test("rejects unsupported and oversized covers", async () => {
+test("rejects unsupported, oversized and mislabelled covers", async () => {
   const dir = await bookDir();
-  await writeFile(join(dir, "art.gif"), "x");
+  await writeFile(join(dir, "art.gif"), GIF);
   await expect(prepareCover(join(dir, "art.gif"), dir)).rejects.toThrow("jpg or .png");
   await writeFile(join(dir, "big.png"), Buffer.alloc(8 * 1024 * 1024 + 1));
   await expect(prepareCover(join(dir, "big.png"), dir)).rejects.toThrow("8 MB");
+  await writeFile(join(dir, "fake.png"), "not an image");
+  await expect(prepareCover(join(dir, "fake.png"), dir)).rejects.toThrow("valid JPEG or PNG");
+  await writeFile(join(dir, "gif.png"), GIF);
+  await expect(prepareCover(join(dir, "gif.png"), dir)).rejects.toThrow("valid JPEG or PNG");
+});
+
+test("an auto-detected cover gets the same checks as an explicit one", async () => {
+  const dir = await bookDir();
+  await writeFile(join(dir, "cover.jpg"), "not an image");
+  await expect(prepareCover(undefined, dir)).rejects.toThrow("valid JPEG or PNG");
+  await writeFile(join(dir, "cover.jpg"), Buffer.alloc(8 * 1024 * 1024 + 1));
+  await expect(prepareCover(undefined, dir)).rejects.toThrow("8 MB");
 });
 
 test("an artifact is redone when its source fingerprint changes or the artifact is missing", () => {

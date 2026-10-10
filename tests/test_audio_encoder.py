@@ -218,3 +218,21 @@ def test_m4b_embeds_cover_and_mp3_ignores_it(tmp_path):
     concatenate_with_ffmpeg(paths, mp3, 24000, cover_path=cover)
     assert {"audio", "cover"} <= set(stream_kinds(m4b))
     assert stream_kinds(mp3) == ["audio"]
+
+
+def test_cli_rejects_a_cover_that_is_not_jpg_png_or_too_large(tmp_path):
+    from click.testing import CliRunner
+
+    from toni.cli import main
+
+    book = tmp_path / "book.txt"
+    book.write_text("Hello.")
+    gif = tmp_path / "art.gif"
+    gif.write_bytes(b"x")
+    big = tmp_path / "big.png"
+    big.write_bytes(b"x" * (8 * 1024 * 1024 + 1))
+    runner = CliRunner()
+    for cover, message in ((gif, ".jpg or .png"), (big, "8 MB")):
+        result = runner.invoke(main, ["-i", str(book), "--cover", str(cover)])
+        assert result.exit_code == 2
+        assert message in result.output

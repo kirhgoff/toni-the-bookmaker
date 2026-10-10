@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from toni import text_extractor
-from toni.text_extractor import extract_epub, extract_text
+from toni.text_extractor import epub_cover, extract_epub, extract_text
 
 CONTAINER = (
     '<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
@@ -211,3 +211,44 @@ def test_not_a_zip_is_rejected(tmp_path):
     bogus.write_text("nope")
     with pytest.raises(ValueError, match="Not a valid EPUB"):
         extract_text(bogus)
+
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\nfake"
+
+
+def with_cover(tmp_path, opf_item: str, opf_meta: str = ""):
+    opf = OPF.replace("<manifest>", f"<metadata>{opf_meta}</metadata><manifest>{opf_item}")
+    return build_epub(tmp_path / "book.epub", {"OEBPS/content.opf": opf.encode(), "OEBPS/images/art.png": PNG_BYTES})
+
+
+def test_epub3_cover_image_is_extracted(tmp_path):
+    epub = with_cover(tmp_path, '<item id="img" href="images/art.png" properties="cover-image" media-type="image/png"/>')
+    assert epub_cover(epub) == (".png", PNG_BYTES)
+
+
+def test_epub2_meta_cover_is_extracted(tmp_path):
+    epub = with_cover(
+        tmp_path,
+        '<item id="img" href="images/art.png" media-type="image/png"/>',
+        '<meta name="cover" content="img"/>',
+    )
+    assert epub_cover(epub) == (".png", PNG_BYTES)
+
+
+def test_epub_without_a_cover_declaration_has_no_cover(tmp_path):
+    assert epub_cover(build_epub(tmp_path / "book.epub")) is None
+
+
+def run_extractor(epub, out, *extra):
+    subprocess.run([sys.executable, "-m", "toni.text_extractor", str(epub), "-o", str(out), *extra], check=True)
+
+
+def test_cli_saves_the_epub_cover_only_when_the_book_folder_has_none(tmp_path):
+    epub = with_cover(tmp_path, '<item id="img" href="images/art.png" properties="cover-image" media-type="image/png"/>')
+    book = tmp_path / "library"
+    book.mkdir()
+    run_extractor(epub, book / "source.txt", "--cover-dir", str(book))
+    assert (book / "cover.png").read_bytes() == PNG_BYTES
+    (book / "cover.png").write_bytes(b"mine")
+    run_extractor(epub, book / "source.txt", "--cover-dir", str(book))
+    assert (book / "cover.png").read_bytes() == b"mine"

@@ -20,6 +20,19 @@ from toni.tts import get_engine, list_engines
 from toni.work_manager import WorkManager
 
 
+MAX_COVER_BYTES = 8 * 1024 * 1024
+
+
+def _check_cover(ctx, param, value: Path | None) -> Path | None:
+    if value is None:
+        return None
+    if value.suffix.lower() not in (".jpg", ".jpeg", ".png"):
+        raise click.BadParameter(f"{value} must be a .jpg or .png file")
+    if value.stat().st_size > MAX_COVER_BYTES:
+        raise click.BadParameter(f"{value} is larger than 8 MB")
+    return value
+
+
 def get_default_workers() -> int:
     """Get default number of workers (half of CPU cores, minimum 1)."""
     return max(1, (os.cpu_count() or 2) // 2)
@@ -202,7 +215,8 @@ def _process_chunk_recursive(
     "cover_file",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
-    help="Cover image (JPEG or PNG) to embed in .m4b output.",
+    callback=_check_cover,
+    help="Cover image (.jpg or .png, at most 8 MB) to embed in .m4b output.",
 )
 @click.option(
     "--bitrate",

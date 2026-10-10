@@ -146,6 +146,10 @@ async function main(): Promise<void> {
     await prepareSource(input, source, PROJECT_DIR);
   }
 
+  const coverFile = values.format === "m4b"
+    ? await prepareCover(values.cover ? resolve(values.cover) : undefined, bookDir)
+    : undefined;
+
   const chapterTitlesFile = (await Bun.file(`${bookDir}/${CHAPTER_TITLES_FILE}`).exists())
     ? CHAPTER_TITLES_FILE
     : undefined;
@@ -184,10 +188,6 @@ async function main(): Promise<void> {
     }
     log(`  "${(await Bun.file(refTextPath).text()).slice(0, 60)}..."`);
   }
-
-  const coverFile = values.format === "m4b"
-    ? await prepareCover(values.cover ? resolve(values.cover) : undefined, bookDir)
-    : undefined;
 
   const options: RenderOptions = {
     projectDir: PROJECT_DIR,

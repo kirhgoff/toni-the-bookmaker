@@ -1,5 +1,5 @@
 import { copyFile, rm } from "node:fs/promises";
-import { extname } from "node:path";
+import { dirname, extname } from "node:path";
 
 import { log, run, runOrThrow } from "./shell.ts";
 
@@ -20,7 +20,10 @@ export const CHAPTER_TITLES_FILE = "source.txt.chapters.txt";
 
 export async function prepareSource(input: string, dest: string, projectDir: string): Promise<void> {
   if (extname(input).toLowerCase() === ".epub") {
-    await runOrThrow(["uv", "run", "--project", projectDir, "python", "-m", "toni.text_extractor", input, "-o", dest]);
+    await runOrThrow([
+      "uv", "run", "--project", projectDir, "python", "-m", "toni.text_extractor",
+      input, "-o", dest, "--cover-dir", dirname(dest),
+    ]);
     return;
   }
   const raw = await Bun.file(input).text();
@@ -117,20 +120,35 @@ export async function prepareVoiceReference(source: string, dest: string): Promi
 const COVER_EXTENSIONS = [".jpg", ".jpeg", ".png"];
 const MAX_COVER_BYTES = 8 * 1024 * 1024;
 
+const COVER_CODECS = ["mjpeg", "png"];
+
+async function assertValidCover(path: string): Promise<void> {
+  if (Bun.file(path).size > MAX_COVER_BYTES) throw new Error(`Cover is larger than 8 MB: ${path}`);
+  const { code, stdout, stderr } = await run([
+    "ffprobe", "-v", "error", "-select_streams", "v:0",
+    "-show_entries", "stream=codec_name", "-of", "csv=p=0", path,
+  ]);
+  if (code !== 0 || stderr.trim() || !COVER_CODECS.includes(stdout.trim())) {
+    throw new Error(`Cover is not a valid JPEG or PNG image: ${path}`);
+  }
+}
+
 /** Resolve the cover to a file inside bookDir, so local and remote renders find it the same way. */
 export async function prepareCover(explicit: string | undefined, bookDir: string): Promise<string | undefined> {
   if (!explicit) {
     for (const extension of COVER_EXTENSIONS) {
-      if (await Bun.file(`${bookDir}/cover${extension}`).exists()) return `cover${extension}`;
+      const found = `${bookDir}/cover${extension}`;
+      if (!(await Bun.file(found).exists())) continue;
+      await assertValidCover(found);
+      return `cover${extension}`;
     }
     return undefined;
   }
 
   const extension = extname(explicit).toLowerCase();
   if (!COVER_EXTENSIONS.includes(extension)) throw new Error(`Cover must be a .jpg or .png file: ${explicit}`);
-  const file = Bun.file(explicit);
-  if (!(await file.exists())) throw new Error(`Cover not found: ${explicit}`);
-  if (file.size > MAX_COVER_BYTES) throw new Error(`Cover is larger than 8 MB: ${explicit}`);
+  if (!(await Bun.file(explicit).exists())) throw new Error(`Cover not found: ${explicit}`);
+  await assertValidCover(explicit);
 
   const coverFile = `cover${extension}`;
   if (`${bookDir}/${coverFile}` !== explicit) await copyFile(explicit, `${bookDir}/${coverFile}`);
