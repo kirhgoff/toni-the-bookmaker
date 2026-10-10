@@ -152,7 +152,7 @@ def build_chapters(
 
     for index, (audio_path, text) in enumerate(zip(audio_paths, chunk_texts)):
         ends_paragraph = ends[index]
-        title = " ".join((text or "").split())
+        title = " ".join(((text or "").strip().split("\n") or [""])[0].split())
         if title and len(title) <= MAX_HEADING_CHARS and heading.match(title):
             if not chapters or chapters[-1][1] != title[:120]:
                 chapters.append((offset, title[:120]))

@@ -72,6 +72,13 @@ def test_custom_chapter_pattern_still_respected(tmp_path):
     assert chapters == [(0, "Act 1")]
 
 
+def test_heading_followed_by_single_newline_is_still_a_chapter(tmp_path):
+    paths = [write_wav(tmp_path / "0.wav", 100)]
+    text = "CHAPTER 1\nIt was a bright cold day in April, and the clocks were striking thirteen."
+    chapters, _ = build_chapters(paths, [text], pause_ms=400)
+    assert chapters == [(0, "CHAPTER 1")]
+
+
 SR = 24000
 
 
