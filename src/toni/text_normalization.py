@@ -21,10 +21,18 @@ ABBREVIATIONS = {
     },
 }
 DECIMAL_SEPARATOR = {"en": ".", "ru": ","}
-NUMBER_START = r"(?<![\w.,:/\-])"
-NUMBER_END = r"(?!\w|[.,:/\-]\d)"
-YEAR = re.compile(rf"{NUMBER_START}(1[5-9]\d\d|20\d\d){NUMBER_END}")
-INTEGER = re.compile(rf"{NUMBER_START}(\d{{1,{MAX_DIGITS}}}){NUMBER_END}")
+GROUP_SEPARATOR = r"[ \u00a0\u202f]"
+NUMBER_START = (
+    r"(?<![\w.,:/\-$€£¥])"
+    rf"(?<!\d{{3}}{GROUP_SEPARATOR})"
+    rf"(?!(?<=\d{GROUP_SEPARATOR})\d{{3}}(?!\d))"
+)
+NUMBER_END = (
+    r"(?!\w|%|[.,:/\-]\d)"
+    rf"(?!(?<=\d{{3}}){GROUP_SEPARATOR}\d)"
+    rf"(?!{GROUP_SEPARATOR}\d{{3}}(?!\d))"
+)
+SUFFIXED_NUMBER_END = {"ru": r"(?!-[^\W\d_])"}
 
 
 def normalization_enabled() -> bool:
@@ -46,6 +54,10 @@ def normalize_speech_text(text: str, language: str | None) -> str:
     return text
 
 
+def _number_pattern(body: str, lang: str) -> re.Pattern:
+    return re.compile(f"{NUMBER_START}{body}{NUMBER_END}{SUFFIXED_NUMBER_END.get(lang, '')}")
+
+
 def _has_leading_zero(digits: str) -> bool:
     return len(digits) > 1 and digits.startswith("0")
 
@@ -64,13 +76,11 @@ def _expand_abbreviations(text: str, table: dict[str, str]) -> str:
 
 def _expand_decimals(text: str, lang: str) -> str:
     separator = re.escape(DECIMAL_SEPARATOR[lang])
-    pattern = re.compile(
-        rf"{NUMBER_START}(\d{{1,{MAX_DIGITS}}}){separator}(\d{{1,4}}){NUMBER_END}"
-    )
+    pattern = _number_pattern(rf"(\d{{1,{MAX_DIGITS}}}){separator}(\d{{1,4}})", lang)
 
     def expand(match: re.Match) -> str:
         whole, fraction = match.groups()
-        if _has_leading_zero(whole):
+        if _has_leading_zero(whole) or not fraction.strip("0"):
             return match.group(0)
         return num2words(float(f"{whole}.{fraction}"), lang=lang)
 
@@ -79,10 +89,11 @@ def _expand_decimals(text: str, lang: str) -> str:
 
 def _expand_numbers(text: str, lang: str) -> str:
     if lang == "en":
-        text = YEAR.sub(lambda m: num2words(int(m.group(1)), to="year"), text)
+        year = _number_pattern(r"(1[5-9]\d\d|20\d\d)", lang)
+        text = year.sub(lambda m: num2words(int(m.group(1)), to="year"), text)
 
     def expand(match: re.Match) -> str:
         digits = match.group(1)
         return match.group(0) if _has_leading_zero(digits) else num2words(int(digits), lang=lang)
 
-    return INTEGER.sub(expand, text)
+    return _number_pattern(rf"(\d{{1,{MAX_DIGITS}}})", lang).sub(expand, text)

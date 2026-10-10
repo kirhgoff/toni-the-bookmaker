@@ -46,3 +46,29 @@ def test_unsupported_language_only_cleans_punctuation():
 def test_normalisation_can_be_disabled(monkeypatch):
     monkeypatch.setenv("TONI_NORMALIZE", "0")
     assert chunk_text("It was 1812.", language="en") == ["It was 1812."]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "1-й раз", "до 25-го числа", "в 1990-х годах", "в 2-х томах", "5-летний мальчик",
+        "2 000 рублей", "1 000 000 человек", "1 000 рублей", "1 000 рублей",
+    ],
+)
+def test_russian_suffixed_numbers_and_spaced_thousands_are_left_alone(text):
+    assert normalize_speech_text(text, "ru") == text
+
+
+def test_english_hyphenated_numbers_are_still_spoken():
+    assert normalize_speech_text("a 5-year-old", "en") == "a five-year-old"
+
+
+@pytest.mark.parametrize(
+    "text", ["$5", "£300", "€20 and ¥5", "50%", "10.5%", "a 1.0 version", "call 555 1234", "2 000 rubles"]
+)
+def test_numbers_the_tts_normaliser_owns_are_left_alone(text):
+    assert normalize_speech_text(text, "en") == text
+
+
+def test_plain_numbers_separated_by_a_space_are_still_spoken():
+    assert normalize_speech_text("5 apples and 7 pears", "en") == "five apples and seven pears"
