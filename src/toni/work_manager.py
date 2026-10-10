@@ -229,6 +229,7 @@ class WorkManager:
         total_chunks: int,
         copied_input: Path | None = None,
         copied_voice: Path | None = None,
+        paragraph_ends: list[bool] | None = None,
     ) -> Manifest:
         """Initialize a new manifest with run parameters."""
         self._manifest = Manifest(
@@ -251,6 +252,8 @@ class WorkManager:
 
         for i in range(total_chunks):
             self._manifest.chunks[str(i)] = {"status": "pending"}
+            if paragraph_ends and paragraph_ends[i]:
+                self._manifest.chunks[str(i)]["ends_paragraph"] = True
 
         self.save_manifest()
         return self._manifest
@@ -399,6 +402,20 @@ class WorkManager:
         elif status == "split":
             for sub_id in sorted(chunk_data.get("sub_chunks", []), key=_chunk_sort_key):
                 self._collect_audio_chunks(manifest, sub_id, result)
+
+    def ends_paragraph(self, chunk_id: str) -> bool:
+        """Whether this chunk's audio is the last of its paragraph, even after splits."""
+        manifest = self.load_manifest()
+        chunk_data = manifest.chunks.get(chunk_id, {})
+        if chunk_data.get("ends_paragraph"):
+            return True
+        parent = chunk_data.get("parent")
+        if not parent:
+            return False
+        siblings = sorted(
+            manifest.chunks[parent].get("sub_chunks", []), key=_chunk_sort_key
+        )
+        return siblings[-1] == chunk_id and self.ends_paragraph(parent)
 
     def get_progress_summary(self) -> dict:
         """Get summary of processing progress."""

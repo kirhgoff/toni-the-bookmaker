@@ -7,6 +7,7 @@ from typing import Callable
 import numpy as np
 import soundfile as sf
 
+from toni.audio_encoder import silence_threshold, trim_edges
 from toni.chunker import split_into_sentences
 from toni.stress import mark_stress
 from toni.tts.base import TTSEngine
@@ -21,18 +22,15 @@ F5_CLIP_SECONDS = 12.0
 DEFAULT_PAUSE_MS = 500
 EDGE_SILENCE_MS = 50
 MAX_GAP_MS = 300
-SILENCE_THRESHOLD_DB = -40.0
 
 
 def tighten_silence(audio: np.ndarray, sample_rate: int) -> np.ndarray:
     if audio.size == 0:
         return audio
-    threshold = 10 ** (SILENCE_THRESHOLD_DB / 20) * np.max(np.abs(audio))
-    loud = np.flatnonzero(np.abs(audio) > threshold)
-    if loud.size == 0:
+    threshold = silence_threshold(audio)
+    if not np.any(np.abs(audio) > threshold):
         return audio[: int(MAX_GAP_MS / 1000 * sample_rate)]
-    edge = int(EDGE_SILENCE_MS / 1000 * sample_rate)
-    audio = audio[max(loud[0] - edge, 0) : loud[-1] + edge]
+    audio = trim_edges(audio, sample_rate, EDGE_SILENCE_MS)
     quiet = (np.abs(audio) <= threshold).astype(np.int8)
     boundaries = np.flatnonzero(np.diff(quiet)) + 1
     run_starts = boundaries[quiet[boundaries] == 1]

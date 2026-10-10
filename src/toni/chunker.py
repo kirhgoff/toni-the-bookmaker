@@ -16,22 +16,31 @@ def chunk_text(text: str, max_chars: int = 500) -> list[str]:
     Returns:
         List of text chunks.
     """
+    return [chunk for chunk, _ in chunk_paragraphs(text, max_chars)]
+
+
+def chunk_paragraphs(text: str, max_chars: int = 500) -> list[tuple[str, bool]]:
+    """Like chunk_text, but flags the chunks that end a paragraph."""
     if not text.strip():
         return []
 
     text = normalize_text(text)
     paragraphs = split_into_paragraphs(text)
 
-    chunks = []
+    chunks: list[tuple[str, bool]] = []
     for paragraph in paragraphs:
         paragraph = paragraph.strip()
         if not paragraph:
             continue
 
-        if len(paragraph) <= max_chars:
-            chunks.append(paragraph)
-        else:
-            chunks.extend(split_paragraph(paragraph, max_chars))
+        pieces = (
+            [paragraph]
+            if len(paragraph) <= max_chars
+            else split_paragraph(paragraph, max_chars)
+        )
+        chunks.extend((piece, False) for piece in pieces)
+        if pieces:
+            chunks[-1] = (chunks[-1][0], True)
 
     return chunks
 

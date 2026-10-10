@@ -77,6 +77,27 @@ DEFAULT_CHAPTER_PATTERN = (
 )
 MAX_HEADING_CHARS = 60
 
+SILENCE_THRESHOLD_DB = -40.0
+EDGE_MARGIN_MS = 40
+
+
+def silence_threshold(audio: np.ndarray) -> float:
+    return 10 ** (SILENCE_THRESHOLD_DB / 20) * float(np.max(np.abs(audio)))
+
+
+def trim_edges(
+    audio: np.ndarray, sample_rate: int, margin_ms: int = EDGE_MARGIN_MS
+) -> np.ndarray:
+    """Trim leading and trailing silence, keeping a small margin."""
+    if audio.size == 0:
+        return audio
+    margin = int(margin_ms / 1000 * sample_rate)
+    loud = np.flatnonzero(np.abs(audio) > silence_threshold(audio))
+    if loud.size == 0:
+        return audio[:margin]
+    return audio[max(loud[0] - margin, 0) : loud[-1] + margin]
+
+
 CHAPTERED_FORMATS = {".m4b", ".m4a", ".mp4"}
 
 
@@ -90,6 +111,17 @@ def pause_after(text: str | None, pause_ms: int) -> int:
     return pause_ms
 
 
+def gap_after(
+    text: str | None,
+    ends_paragraph: bool,
+    pause_ms: int,
+    paragraph_pause_ms: int,
+) -> int:
+    if ends_paragraph:
+        return paragraph_pause_ms
+    return pause_after(text, pause_ms)
+
+
 def wav_duration_ms(path: Path) -> int:
     """Read a WAV's duration from its header without decoding it."""
     with contextlib.closing(wave.open(str(path), "rb")) as wf:
@@ -101,6 +133,8 @@ def build_chapters(
     chunk_texts: list[str],
     pause_ms: int,
     pattern: str = DEFAULT_CHAPTER_PATTERN,
+    paragraph_ends: list[bool] | None = None,
+    paragraph_pause_ms: int | None = None,
 ) -> tuple[list[tuple[int, str]], int]:
     """Locate chapter starts by timing the chunks whose text is a heading.
 
@@ -111,17 +145,20 @@ def build_chapters(
         (chapters as (start_ms, title), total duration in ms)
     """
     heading = re.compile(pattern)
+    ends = paragraph_ends or [False] * len(audio_paths)
+    paragraph_pause_ms = paragraph_pause_ms or pause_ms
     chapters: list[tuple[int, str]] = []
     offset = 0
 
     for index, (audio_path, text) in enumerate(zip(audio_paths, chunk_texts)):
+        ends_paragraph = ends[index]
         title = " ".join((text or "").split())
         if title and len(title) <= MAX_HEADING_CHARS and heading.match(title):
             if not chapters or chapters[-1][1] != title[:120]:
                 chapters.append((offset, title[:120]))
         offset += wav_duration_ms(audio_path)
         if index < len(audio_paths) - 1:
-            offset += pause_after(text, pause_ms)
+            offset += gap_after(text, ends_paragraph, pause_ms, paragraph_pause_ms)
 
     return chapters, offset
 
@@ -155,6 +192,8 @@ def concatenate_with_ffmpeg(
     work_dir: Path | None = None,
     chunk_texts: list[str] | None = None,
     chapter_pattern: str = DEFAULT_CHAPTER_PATTERN,
+    paragraph_ends: list[bool] | None = None,
+    paragraph_pause_ms: int | None = None,
 ) -> int:
     """Concatenate WAV files using ffmpeg concat demuxer and encode to MP3.
 
@@ -171,6 +210,8 @@ def concatenate_with_ffmpeg(
         chunk_texts: Chunk texts, parallel to audio_paths, used to find chapter
             headings. Chapters are only embedded for .m4b/.m4a outputs.
         chapter_pattern: Regex matched against the start of each chunk's text.
+        paragraph_ends: Whether each chunk ends a paragraph, parallel to audio_paths.
+        paragraph_pause_ms: Pause after a paragraph; defaults to 2x pause_ms.
 
     Returns:
         Number of chapters embedded.
@@ -185,6 +226,8 @@ def concatenate_with_ffmpeg(
         work_dir = output_path.parent
 
     concat_list_path = work_dir / "concat_list.txt"
+    ends = paragraph_ends or [False] * len(audio_paths)
+    paragraph_pause_ms = paragraph_pause_ms or 2 * pause_ms
     silence_paths: dict[int, Path] = {}
 
     def silence_for(ms: int) -> Path:
@@ -201,13 +244,19 @@ def concatenate_with_ffmpeg(
             f.write(concat_entry(audio_path))
             if i < len(audio_paths) - 1:
                 text = chunk_texts[i] if chunk_texts else None
-                f.write(concat_entry(silence_for(pause_after(text, pause_ms))))
+                gap = gap_after(text, ends[i], pause_ms, paragraph_pause_ms)
+                f.write(concat_entry(silence_for(gap)))
 
     wants_chapters = output_path.suffix.lower() in CHAPTERED_FORMATS
     chapters: list[tuple[int, str]] = []
     if wants_chapters and chunk_texts:
         chapters, total_ms = build_chapters(
-            audio_paths, chunk_texts, pause_ms, chapter_pattern
+            audio_paths,
+            chunk_texts,
+            pause_ms,
+            chapter_pattern,
+            ends,
+            paragraph_pause_ms,
         )
 
     cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list_path)]
@@ -278,7 +327,7 @@ def save_chunk_wav(
         output_path: Path to save the WAV file.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    audio_int16 = (audio * 32767).astype(np.int16)
+    audio_int16 = (trim_edges(audio, sample_rate) * 32767).astype(np.int16)
 
     with wave.open(str(output_path), "wb") as wav_file:
         wav_file.setnchannels(1)

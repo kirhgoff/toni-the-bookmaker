@@ -14,7 +14,7 @@ from toni.audio_encoder import (
     concatenate_with_ffmpeg,
     save_chunk_wav,
 )
-from toni.chunker import chunk_text, split_chunk
+from toni.chunker import chunk_paragraphs, split_chunk
 from toni.text_extractor import extract_text
 from toni.tts import get_engine, list_engines
 from toni.work_manager import WorkManager
@@ -192,6 +192,12 @@ def _process_chunk_recursive(
     help="Pause duration between chunks in milliseconds.",
 )
 @click.option(
+    "--paragraph-pause",
+    type=int,
+    default=None,
+    help="Pause after a paragraph in milliseconds. Default: twice --chunk-pause.",
+)
+@click.option(
     "--bitrate",
     type=str,
     default="64k",
@@ -234,6 +240,7 @@ def main(
     voice_file: Path | None,
     model: str,
     chunk_pause: int,
+    paragraph_pause: int | None,
     bitrate: str,
     chapter_pattern: str,
     work_dir: Path | None,
@@ -297,7 +304,8 @@ def main(
 
         engine = get_engine(model)
 
-        chunks = chunk_text(text, max_chars=engine.max_chunk_chars)
+        marked_chunks = chunk_paragraphs(text, max_chars=engine.max_chunk_chars)
+        chunks = [chunk for chunk, _ in marked_chunks]
         total_chunks = len(chunks)
 
         if verbose:
@@ -320,6 +328,7 @@ def main(
             total_chunks=total_chunks,
             copied_input=copied_input,
             copied_voice=copied_voice,
+            paragraph_ends=[ends for _, ends in marked_chunks],
         )
 
         for i, chunk in enumerate(chunks):
@@ -387,6 +396,8 @@ def main(
         work_dir=work.work_dir,
         chunk_texts=chunk_texts,
         chapter_pattern=chapter_pattern,
+        paragraph_ends=[work.ends_paragraph(cid) for cid in audio_chunk_ids],
+        paragraph_pause_ms=paragraph_pause,
     )
     if chapter_count:
         click.echo(f"Embedded {chapter_count} chapters")
