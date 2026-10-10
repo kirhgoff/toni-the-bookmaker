@@ -402,7 +402,6 @@ class WorkManager:
         ]
 
     def get_unchecked_chunks(self) -> list[str]:
-        """Completed chunks that have not been through QC."""
         manifest = self.load_manifest()
         return [
             chunk_id

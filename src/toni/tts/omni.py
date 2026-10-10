@@ -180,4 +180,5 @@ class OmniVoiceEngine(TTSEngine):
 
     def unload(self) -> None:
         self._model = None
+        self._eager_llm = None
         self._prompts.clear()

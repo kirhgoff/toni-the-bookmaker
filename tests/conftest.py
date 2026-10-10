@@ -34,6 +34,7 @@ class FakeEngine(TTSEngine):
         self.stretch: dict[str, float] = {}
         self.base_stretch = 1.0
         self.say = lambda text: text
+        self.drop_last_audio = False
 
     name = property(lambda self: "fake")
     sample_rate = property(lambda self: SR)
@@ -64,7 +65,8 @@ class FakeEngine(TTSEngine):
         self.batches.append(list(texts))
         if any(t in self.fail_texts for t in texts):
             raise RuntimeError("batch boom")
-        return [self._take(t) for t in texts]
+        audios = [self._take(t) for t in texts]
+        return audios[:-1] if self.drop_last_audio else audios
 
 
     def transcribe(self, audio: np.ndarray, sample_rate: int) -> str:

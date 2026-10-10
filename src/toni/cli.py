@@ -227,13 +227,14 @@ def _process_batch(
             voice_sample=voice_file,
             **_speed_kwargs(engine, work.get_chunk_speed(ids[0])),
         )
+        results = list(zip(ids, texts, audios, strict=True))
     except Exception as e:
         if verbose:
             click.echo(f"\nBatch {ids} failed, rendering per chunk: {str(e)[:100]}")
         for cid in ids:
             _process_chunk_recursive(work, engine, cid, voice_file, max_retries, 0, verbose, [])
         return
-    for cid, text, audio in zip(ids, texts, audios):
+    for cid, text, audio in results:
         _finish_chunk(work, engine, cid, text, audio, seed)
 
 

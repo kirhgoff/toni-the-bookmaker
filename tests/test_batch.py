@@ -24,6 +24,14 @@ def test_auto_width_is_asked_after_the_model_is_loaded(fake, tmp_path) -> None:
 
 
 @requires_ffmpeg
+def test_batch_returning_too_few_audios_falls_back_per_chunk(fake, tmp_path) -> None:
+    fake.width = 2
+    fake.drop_last_audio = True
+    work = run_toni(tmp_path, TEXT)
+    assert work.get_all_audio_chunks_ordered() == ["0", "1", "2", "3", "4"]
+
+
+@requires_ffmpeg
 def test_failing_batch_falls_back_per_chunk(fake, tmp_path) -> None:
     fake.width = 2
     fake.fail_texts = {CHUNKS[3]}

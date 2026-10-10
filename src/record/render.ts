@@ -54,7 +54,7 @@ export function dockerEnvFlags(o: RenderOptions, env = process.env): string[] {
     ...(o.refText ? ["-e", `TONI_REF_TEXT=${shellQuote(o.refText)}`] : []),
     ...(env.TONI_NORMALIZE ? ["-e", `TONI_NORMALIZE=${shellQuote(env.TONI_NORMALIZE)}`] : []),
     ...Object.entries(env)
-      .filter(([k, v]) => (k.startsWith("TONI_QC_") || k === "TONI_OMNI_COMPILE") && v !== undefined)
+      .filter(([k, v]) => (k.startsWith("TONI_QC") || k === "TONI_BATCH" || k === "TONI_OMNI_COMPILE") && v !== undefined)
       .flatMap(([k, v]) => ["-e", `${k}=${shellQuote(v!)}`]),
   ];
 }

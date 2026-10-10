@@ -1,5 +1,3 @@
-"""Design a narrator voice once: generate one fixed sentence from the voice description."""
-
 import os
 from pathlib import Path
 

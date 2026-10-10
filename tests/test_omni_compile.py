@@ -83,3 +83,11 @@ def test_numbered_cuda_device_sizes_batches_by_that_device(monkeypatch) -> None:
     monkeypatch.setattr(torch.cuda, "mem_get_info", lambda device: asked.append(device) or (20 * 2**30, 0))
     assert OmniVoiceEngine().batch_width() == 8
     assert asked == ["cuda:1"]
+
+
+def test_unload_drops_the_eager_model_reference(cuda_engine) -> None:
+    cuda_engine._model = FakeModel()
+    cuda_engine._compile_llm()
+    assert cuda_engine._eager_llm == "eager"
+    cuda_engine.unload()
+    assert cuda_engine._eager_llm is None

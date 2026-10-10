@@ -18,6 +18,14 @@ test("forwards TONI_NORMALIZE to the remote container only when it is set", () =
   expect(dockerEnvFlags(OPTIONS, { TONI_NORMALIZE: "0" })).toContain("TONI_NORMALIZE='0'");
 });
 
+test("forwards every TONI_QC* setting and TONI_BATCH to the remote container", () => {
+  const flags = dockerEnvFlags(OPTIONS, { TONI_QC: "0", TONI_QC_WER: "0.4", TONI_BATCH: "4", TONI_OTHER: "x" }).join(" ");
+  expect(flags).toContain("TONI_QC='0'");
+  expect(flags).toContain("TONI_QC_WER='0.4'");
+  expect(flags).toContain("TONI_BATCH='4'");
+  expect(flags).not.toContain("TONI_OTHER");
+});
+
 test("passes the seed only when given", () => {
   expect(cliArgs(OPTIONS, "/books", "/books")).not.toContain("--seed");
   const args = cliArgs({ ...OPTIONS, seed: "7" }, "/books", "/books");

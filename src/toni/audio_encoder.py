@@ -302,7 +302,6 @@ def save_chunk_wav(
 
 
 def wav_is_valid(path: Path) -> bool:
-    """False for a missing, empty or truncated WAV."""
     try:
         with contextlib.closing(wave.open(str(path), "rb")) as wf:
             frames, width, channels = wf.getnframes(), wf.getsampwidth(), wf.getnchannels()
