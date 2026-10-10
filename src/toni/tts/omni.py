@@ -13,8 +13,6 @@ DEFAULT_INSTRUCT = "male, middle-aged, low pitch"
 
 
 class OmniVoiceEngine(TTSEngine):
-    supports_speed = True
-
     """TTS engine using k2-fsa's OmniVoice model.
 
     - 0.6B parameters, 600+ languages, 24 kHz output
@@ -30,6 +28,8 @@ class OmniVoiceEngine(TTSEngine):
         TONI_NORMALIZE:     0 turns off number/abbreviation normalisation, here and in the chunker
         TONI_OMNI_SPEED:    speaking rate factor; below 1.0 gives every chunk more room
     """
+
+    supports_speed = True
 
     def __init__(self):
         self._model = None
