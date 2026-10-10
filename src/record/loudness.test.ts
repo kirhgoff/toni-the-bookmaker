@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import {
   assertMeetsPreset, initialCeiling, loudnormFilter, lowerCeiling, measureLoudness, needsNormalizing,
-  parseLoudnorm, PRESETS, resolvePreset, verifyBook,
+  parseLoudnorm, PRESETS, raisedTarget, resolvePreset, verifyBook,
 } from "./loudness.ts";
 
 const STDERR = `[Parsed_loudnorm_0 @ 0x7e7020e40] \n{\n\t"input_i" : "-37.14",\n\t"input_tp" : "-19.04",\n\t"input_lra" : "5.30",\n\t"input_thresh" : "-48.27",\n\t"output_i" : "-17.95",\n\t"normalization_type" : "dynamic",\n\t"target_offset" : "-0.05"\n}\n[out#0/null @ 0x7e70206c0] video:0KiB audio:750KiB\n`;
@@ -87,3 +87,11 @@ test("acx brings a clicky low-bitrate file under its true-peak ceiling", async (
     await rm(dir, { recursive: true, force: true });
   }
 }, 60000);
+
+test("a retry raises the loudnorm target by the loudness the last attempt lost, within the tolerance", () => {
+  const lost = (integrated: number) => ({ integrated, truePeak: -2, range: 5, threshold: -30 });
+  expect(raisedTarget(-19, lost(-19.6), PRESETS.acx)).toBeCloseTo(-18.4, 6);
+  expect(raisedTarget(-18.4, lost(-19.3), PRESETS.acx)).toBeCloseTo(-18.1, 6);
+  expect(raisedTarget(-19, lost(-22), PRESETS.acx)).toBe(-18);
+  expect(raisedTarget(-19, lost(-18.5), PRESETS.acx)).toBe(-19);
+});
