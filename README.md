@@ -119,6 +119,7 @@ stress-marked.
 | `-p, --pause` | 500 | Pause between sentences and chunks, in milliseconds; paragraph ends get twice that |
 | `-f, --format` | m4b | `m4b` (with chapters) or `mp3` (no chapters) |
 | `--cover` | `cover.jpg`/`cover.png` in the book folder | Cover art (.jpg/.png, max 8 MB) embedded in the `m4b` |
+| `--loudness` | default | Loudness target: `default` (-18 LUFS) or `acx` (-19 LUFS, -3 dBTP, for Audible/ACX) |
 | `-c, --chapters` | see below | Chapter heading pattern |
 | `-l, --language` | en | Language code |
 | `-m, --model` | omni | TTS engine: `omni`, `pocket`, `kani`, `espeech`, or `qwen` |
@@ -218,7 +219,7 @@ prefer the script unless you have a specific reason not to.
 - **The file might still be bad after "Done!"** — every render is decoded
   end to end and loudness-normalised to -18 LUFS when it's off; run
   `scripts/normalize_audiobook.sh book.m4b` to do the same for any existing
-  file.
+  file (add `--loudness acx` for Audible/ACX).
 - **The book is too quiet** — same script: `scripts/normalize_audiobook.sh book.m4b`.
 - **It's extremely slow with no GPU or Apple Silicon.** CPU-only rendering is
   roughly 8 times slower — a full novel can take on the order of a week.

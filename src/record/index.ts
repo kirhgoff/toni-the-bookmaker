@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { mkdir, readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
-import { verifyBook } from "./loudness.ts";
+import { resolvePreset, verifyBook } from "./loudness.ts";
 import { prepareCover, prepareSource, prepareVoiceReference, audioDuration } from "./prep.ts";
 import { renderLocal, renderRemote, type RenderOptions } from "./render.ts";
 import { log, requireCommand, run, runOrThrow } from "./shell.ts";
@@ -22,6 +22,7 @@ const USAGE = `Record an audiobook from a text or PDF file.
   -p, --pause MS        Pause between sentences and chunks in milliseconds (default: 500)
   -f, --format FORMAT   m4b (default, with chapters) or mp3
       --cover IMAGE     Cover art (.jpg or .png) for m4b; defaults to cover.jpg/cover.png in the book folder
+      --loudness PRESET Loudness target: default (-18 LUFS) or acx (-19 LUFS, -3 dBTP, for Audible/ACX)
   -c, --chapters REGEX  Chapter heading pattern
   -l, --language LANG   Language code (default: en)
   -m, --model MODEL     TTS engine: omni (default), pocket, kani, espeech, qwen
@@ -88,6 +89,7 @@ async function main(): Promise<void> {
       format: { type: "string", short: "f", default: "m4b" },
       chapters: { type: "string", short: "c" },
       cover: { type: "string" },
+      loudness: { type: "string", default: "default" },
       language: { type: "string", short: "l", default: "en" },
       model: { type: "string", short: "m", default: "omni" },
       host: { type: "string", short: "H" },
@@ -104,6 +106,8 @@ async function main(): Promise<void> {
   if (!["m4b", "mp3"].includes(values.format!)) {
     throw new Error(`Unsupported format: ${values.format} (use m4b or mp3)`);
   }
+
+  const loudness = resolvePreset(values.loudness!);
 
   const input = resolve(values.input);
   if (!(await Bun.file(input).exists())) throw new Error(`Input not found: ${input}`);
@@ -181,7 +185,7 @@ async function main(): Promise<void> {
   else await renderLocal(options);
 
   const book = `${runDir}/${name}.${values.format}`;
-  await verifyBook(book);
+  await verifyBook(book, loudness);
   const hours = (await audioDuration(book)) / 3600;
   const size = (Bun.file(book).size / 1e6).toFixed(0);
   const { stdout: chapters } = await run([
