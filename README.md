@@ -203,6 +203,9 @@ rendering, never in render workers. QC runs on installs that include
 Docker image built from them. On a `pocket` install it is skipped with a
 one-line message.
 
+Whisper is told the book language (`TONI_LANGUAGE`) so short chunks are not
+misdetected as another language; unset, it auto-detects per chunk.
+
 Tune it with environment variables (or the matching `toni.cli` flags):
 `TONI_QC=0` (off), `TONI_QC_WER` (default 0.25), `TONI_QC_RATIO_MIN` (0.6),
 `TONI_QC_RATIO_MAX` (1.6), `TONI_QC_RETRIES` (2). For languages where Whisper

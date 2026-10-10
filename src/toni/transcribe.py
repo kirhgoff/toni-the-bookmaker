@@ -5,6 +5,7 @@ OmniVoice pulls Whisper large-v3-turbo (~1.6GB) into every process that
 clones a voice without a supplied transcript.
 """
 
+import os
 import sys
 from pathlib import Path
 from typing import Callable
@@ -30,8 +31,11 @@ def load_transcriber(device: str | None = None) -> Callable[[np.ndarray, int], s
         device=device,
         torch_dtype=torch.float32 if device == "cpu" else torch.float16,
     )
+    language = os.environ.get("TONI_LANGUAGE")
+    generate_kwargs = {"language": language, "task": "transcribe"} if language else {}
     return lambda waveform, sample_rate: asr(
-        {"raw": waveform, "sampling_rate": sample_rate}
+        {"raw": waveform, "sampling_rate": sample_rate},
+        generate_kwargs=generate_kwargs,
     )["text"].strip()
 
 
