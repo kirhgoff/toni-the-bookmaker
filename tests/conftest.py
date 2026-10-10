@@ -31,6 +31,7 @@ class FakeEngine(TTSEngine):
         self.fail_texts: set[str] = set()
         self.bad_takes: dict[str, int] = {}
         self.transcribed = 0
+        self.asr_errors: set[str] = set()
         self.stretch: dict[str, float] = {}
         self.base_stretch = 1.0
         self.say = lambda text: text
@@ -73,6 +74,8 @@ class FakeEngine(TTSEngine):
         self.transcribed += 1
         n = len(audio) % 1000
         text = self.takes[n][0]
+        if text in self.asr_errors:
+            raise RuntimeError(f"asr boom: {text}")
         earlier = sum(1 for t, _ in self.takes[:n] if t == text)
         return "" if earlier < self.bad_takes.get(text, 0) else self.say(text)
 

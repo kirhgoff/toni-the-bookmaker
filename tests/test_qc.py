@@ -1,7 +1,7 @@
 import pytest
 from conftest import TEXT, requires_ffmpeg, run_toni
 
-from toni.qc import Thresholds, expected_seconds, verdict, word_error_rate
+from toni.qc import Thresholds, expected_seconds, spoken_form, verdict, word_error_rate
 
 CHUNKS = TEXT.split("\n\n")
 
@@ -111,3 +111,26 @@ def test_hypothesis_is_normalised_like_the_chunk_text(fake, tmp_path, monkeypatc
         assert len(fake.takes) - before == 1
         assert work.load_manifest().chunks["0"]["qc"]["verdict"] == "pass"
         assert work.load_manifest().chunks["0"]["qc"]["wer"] == 0
+
+
+@requires_ffmpeg
+def test_asr_error_keeps_the_chunk_and_the_run(fake, tmp_path) -> None:
+    fake.asr_errors = {CHUNKS[2]}
+    work = run_toni(tmp_path, TEXT)
+    chunk = work.load_manifest().chunks["2"]
+    assert chunk["qc"]["verdict"] == "error"
+    assert chunk["status"] == "completed"
+    assert [t for t, _ in fake.takes].count(CHUNKS[2]) == 1
+    assert work.get_all_audio_chunks_ordered() == ["0", "1", "2", "3", "4"]
+
+
+def test_median_is_clamped_to_the_ratio_window() -> None:
+    assert verdict(0.0, 3.0, 10.0, Thresholds(), median=3.0) == "fail"
+    assert verdict(0.0, 1.0, 10.0, Thresholds(), median=3.0) == "pass"
+
+
+def test_ru_ordinal_dates_match_the_spoken_form(monkeypatch) -> None:
+    monkeypatch.delenv("TONI_NORMALIZE", raising=False)
+    reference = spoken_form("Он уехал 5-го мая.", "ru")
+    assert word_error_rate(reference, spoken_form("Он уехал 5 мая.", "ru")) == 0.0
+    assert word_error_rate(reference, spoken_form("Он уехал пять мая.", "ru")) == 0.0

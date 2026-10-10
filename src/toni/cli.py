@@ -26,12 +26,12 @@ from toni.qc import (
     Thresholds,
     calibration_median,
     expected_seconds,
+    spoken_form,
     verdict,
     word_error_rate,
 )
 from toni.seed import chunk_seed, seed_everything
 from toni.text_extractor import extract_text
-from toni.text_normalization import normalization_enabled, normalize_speech_text
 from toni.tts import get_engine, list_engines
 from toni.work_manager import WorkManager, run_fingerprint
 
@@ -258,17 +258,24 @@ def qc_pass(
     expected: Callable[[str, float | None], float],
     sample_rate: int,
     language: str | None = None,
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int]:
     heard = []
+    errors = 0
     for cid in work.get_unchecked_chunks():
         text = work.load_chunk_text(cid)
         audio = load_chunk_wav(work.get_chunk_audio_path(cid))
         seconds = expected(text, work.get_chunk_speed(cid))
-        hypothesis = transcriber(audio, sample_rate)
-        if normalization_enabled():
-            hypothesis = normalize_speech_text(hypothesis, language)
+        try:
+            hypothesis = transcriber(audio, sample_rate)
+        except Exception as e:
+            message = str(e)[:100]
+            click.echo(f"QC error {cid}: {message}")
+            work.set_chunk_status(cid, "completed", qc={"verdict": "error", "error": message})
+            errors += 1
+            continue
+        wer = word_error_rate(spoken_form(text, language), spoken_form(hypothesis, language))
         ratio = len(audio) / sample_rate / seconds if seconds else 1.0
-        heard.append((cid, text, word_error_rate(text, hypothesis), ratio, seconds))
+        heard.append((cid, text, wer, ratio, seconds))
 
     median = calibration_median(
         [ratio for _, _, _, ratio, seconds in heard if seconds >= MIN_CHECKED_SECONDS]
@@ -299,7 +306,7 @@ def qc_pass(
             flipped += 1
         elif result == "fail":
             gave_up += 1
-    return checked, flipped, gave_up
+    return checked, flipped, gave_up, errors
 
 
 def _checked_ratios(work: "WorkManager", expected: Callable[[str, float | None], float]) -> list[float]:
@@ -604,7 +611,7 @@ def main(
     def expected(text: str, chunk_speed: float | None) -> float:
         return expected_seconds(text, ref_text, ref_seconds, base_speed * (chunk_speed or 1.0))
 
-    totals = [0, 0, 0]
+    totals = [0, 0, 0, 0]
     while True:
         render_pending(
             work, manifest.model, voice_file_for_tts, max_retries, workers, batch, verbose
@@ -631,6 +638,7 @@ def main(
         click.echo(
             f"QC: {totals[0]} checked, {totals[1]} regenerated, "
             f"{totals[2]} still failing after retries"
+            + (f", {totals[3]} not checked (ASR errors)" if totals[3] else "")
         )
 
     progress = work.get_progress_summary()

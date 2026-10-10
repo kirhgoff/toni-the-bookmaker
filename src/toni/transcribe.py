@@ -18,6 +18,9 @@ import soundfile as sf
 def load_transcriber(device: str | None = None) -> Callable[[np.ndarray, int], str]:
     import torch
     from transformers import pipeline
+    from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
+
+    from toni.text_normalization import base_language
 
     if device is None:
         device = (
@@ -31,12 +34,19 @@ def load_transcriber(device: str | None = None) -> Callable[[np.ndarray, int], s
         device=device,
         torch_dtype=torch.float32 if device == "cpu" else torch.float16,
     )
-    language = os.environ.get("TONI_LANGUAGE")
-    generate_kwargs = {"language": language, "task": "transcribe"} if language else {}
-    return lambda waveform, sample_rate: asr(
-        {"raw": waveform, "sampling_rate": sample_rate},
-        generate_kwargs=generate_kwargs,
-    )["text"].strip()
+    language = base_language(os.environ.get("TONI_LANGUAGE"))
+    generate_kwargs = (
+        {"language": language, "task": "transcribe"} if language in TO_LANGUAGE_CODE.values() else {}
+    )
+
+    def transcribe(waveform: np.ndarray, sample_rate: int) -> str:
+        return asr(
+            {"raw": waveform, "sampling_rate": sample_rate},
+            return_timestamps=len(waveform) > 30 * sample_rate,
+            generate_kwargs=generate_kwargs,
+        )["text"].strip()
+
+    return transcribe
 
 
 def transcribe_reference(audio_path: Path, device: str = "cpu") -> str:

@@ -192,7 +192,7 @@ with `-o` or the `AUDIOBOOK_LIBRARY` environment variable.
 After rendering, Toni transcribes every chunk back with Whisper and compares it
 with the text (word error rate, after the same number and abbreviation
 normalisation as the text) and its duration with what the text should take,
-judged against the median of the run once at least five chunks of four seconds
+judged against the median of the run (clamped to the ratio window) once at least five chunks of four seconds
 or more have been measured. A chunk that skips words, babbles or is cut short is regenerated with a
 fresh but reproducible seed, up to twice, and then split like any failed chunk.
 The run ends with a `QC:` summary; per-chunk results are in `manifest.json`.
@@ -204,7 +204,11 @@ Docker image built from them. On a `pocket` install it is skipped with a
 one-line message.
 
 Whisper is told the book language (`TONI_LANGUAGE`) so short chunks are not
-misdetected as another language; unset, it auto-detects per chunk.
+misdetected as another language; unset, it auto-detects per chunk. Its base code
+is used (`en-US` becomes `en`), and a language Whisper does not know falls back
+to auto-detect. Chunks longer than 30 seconds are transcribed in long-form mode.
+A chunk whose transcription itself errors is kept as rendered, marked `error` in
+`manifest.json` and counted as "not checked" in the summary.
 
 Tune it with environment variables (or the matching `toni.cli` flags):
 `TONI_QC=0` (off), `TONI_QC_WER` (default 0.25), `TONI_QC_RATIO_MIN` (0.6),

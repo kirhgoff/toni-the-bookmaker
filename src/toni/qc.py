@@ -4,10 +4,13 @@ import unicodedata
 from dataclasses import dataclass
 from functools import lru_cache
 
+from toni.text_normalization import normalization_enabled, normalize_speech_text
+
 CHAR_SCRIPTS = re.compile(r"[฀-๿぀-ヿ㐀-䶿一-鿿豈-﫿]")
 DEFAULT_WEIGHT_PER_SECOND = 20.0
 MIN_CHECKED_SECONDS = 4.0
 MIN_CALIBRATION_SAMPLES = 5
+ORDINAL_SUFFIX = re.compile(r"(?<=\d)-[а-яё]+", re.IGNORECASE)
 
 
 @dataclass
@@ -32,6 +35,11 @@ def edit_distance(a: list[str], b: list[str]) -> int:
             cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x != y)))
         prev = cur
     return prev[-1]
+
+
+def spoken_form(text: str, language: str | None) -> str:
+    text = ORDINAL_SUFFIX.sub("", text)
+    return normalize_speech_text(text, language) if normalization_enabled() else text
 
 
 def word_error_rate(reference: str, hypothesis: str) -> float:
@@ -72,6 +80,6 @@ def verdict(
     wer: float, ratio: float, expected: float, t: Thresholds, median: float | None = None
 ) -> str:
     # OmniVoice stretches estimates under ~50 tokens, so short chunks always read long
-    judged = ratio / median if median else ratio
+    judged = ratio / min(max(median, t.ratio_min), t.ratio_max) if median else ratio
     duration_ok = expected < MIN_CHECKED_SECONDS or t.ratio_min <= judged <= t.ratio_max
     return "pass" if wer <= t.wer and duration_ok else "fail"
