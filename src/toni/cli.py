@@ -25,7 +25,7 @@ from toni.qc import Thresholds, expected_seconds, verdict, word_error_rate
 from toni.seed import chunk_seed, seed_everything
 from toni.text_extractor import extract_text
 from toni.tts import get_engine, list_engines
-from toni.work_manager import WorkManager
+from toni.work_manager import WorkManager, run_fingerprint
 
 
 def get_default_workers() -> int:
@@ -108,6 +108,7 @@ def _finish_chunk(
     seed: int,
 ) -> None:
     save_chunk_wav(audio, engine.sample_rate, work.get_chunk_audio_path(chunk_id))
+    work.publish_audio(chunk_id, text)
     work.set_chunk_status(chunk_id, "completed", seed=seed)
 
 
@@ -261,6 +262,7 @@ def qc_pass(
         if result == "pass":
             continue
         click.echo(f"QC fail {cid}: wer={wer:.2f} ratio={ratio:.2f} attempt={retries}")
+        work.evict_cache(text)
         if retry:
             work.increment_retries(cid)
             flipped += 1
@@ -356,6 +358,12 @@ def _chunk_marks(chunk) -> dict:
     help="Custom work directory base. Defaults to ./work/",
 )
 @click.option(
+    "--cache-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Shared per-book chunk cache; defaults to <work-dir>/cache.",
+)
+@click.option(
     "--max-retries",
     type=int,
     default=2,
@@ -432,6 +440,7 @@ def main(
     bitrate: str,
     chapter_pattern: str,
     work_dir: Path | None,
+    cache_dir: Path | None,
     max_retries: int,
     workers: int | None,
     seed: int,
@@ -491,6 +500,8 @@ def main(
         )
 
         voice_file_for_tts = work.get_copied_voice_path()
+        if bad := work.reset_invalid_audio():
+            click.echo(f"Re-rendering {len(bad)} truncated chunks")
     else:
         click.echo("Extracting text...")
         text = extract_text(input_file)
@@ -530,12 +541,19 @@ def main(
             copied_voice=copied_voice,
             chunk_marks=[_chunk_marks(chunk) for chunk in chunks],
             seed=seed,
+            fingerprint=run_fingerprint(model, copied_voice, seed),
+            cache_dir=cache_dir or work_base / "cache",
         )
 
         for i, chunk in enumerate(chunks):
             work.save_chunk_text(str(i), chunk.text)
             if chunk.raw_text != chunk.text:
                 work.save_chunk_raw_text(str(i), chunk.raw_text)
+
+        reused = sum(
+            work.restore_from_cache(str(i), chunk.text) for i, chunk in enumerate(chunks)
+        )
+        click.echo(f"Reused {reused} chunks from cache")
 
         click.echo(f"Saved {total_chunks} text chunks to {work.chunks_dir}")
 

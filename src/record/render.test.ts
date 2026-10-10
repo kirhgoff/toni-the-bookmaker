@@ -28,3 +28,8 @@ test("passes --no-qc only when QC is off", () => {
   expect(cliArgs(OPTIONS, "/books", "/books")).not.toContain("--no-qc");
   expect(cliArgs({ ...OPTIONS, qc: false }, "/books", "/books")).toContain("--no-qc");
 });
+
+test("shares one chunk cache per book", () => {
+  const args = cliArgs(OPTIONS, "/books", "/out");
+  expect(args.slice(args.indexOf("--cache-dir"))[1]).toBe("/books/cache");
+});

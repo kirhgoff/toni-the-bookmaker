@@ -1,6 +1,7 @@
 """Work directory and manifest management for resumable processing."""
 
 import fcntl
+import hashlib
 import json
 import os
 from contextlib import contextmanager
@@ -9,8 +10,26 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from toni.audio_encoder import wav_is_valid
 
-MANIFEST_VERSION = "1.1"
+
+MANIFEST_VERSION = "1.2"
+
+AUDIO_ENV = (
+    "TONI_LANGUAGE",
+    "TONI_REF_TEXT",
+    "TONI_OMNI_INSTRUCT",
+    "TONI_OMNI_NUM_STEP",
+    "TONI_OMNI_SPEED",
+    "TONI_NORMALIZE",
+    "TONI_QWEN_MODEL",
+)
+
+
+def run_fingerprint(model: str, voice_file: Path | None, seed: int) -> str:
+    voice = hashlib.sha1(voice_file.read_bytes()).hexdigest() if voice_file else None
+    env = {k: os.environ.get(k) for k in AUDIO_ENV}
+    return hashlib.sha1(json.dumps([model, voice, seed, env]).encode()).hexdigest()
 
 
 @dataclass
@@ -34,6 +53,8 @@ class Manifest:
     copied_input: str | None = None
     copied_voice: str | None = None
     seed: int = 0
+    fingerprint: str = ""
+    cache_dir: str | None = None
     chunks: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -49,6 +70,8 @@ class Manifest:
             "copied_input": self.copied_input,
             "copied_voice": self.copied_voice,
             "seed": self.seed,
+            "fingerprint": self.fingerprint,
+            "cache_dir": self.cache_dir,
             "chunks": self.chunks,
         }
 
@@ -66,6 +89,8 @@ class Manifest:
             copied_input=data.get("copied_input"),
             copied_voice=data.get("copied_voice"),
             seed=data.get("seed", 0),
+            fingerprint=data.get("fingerprint", ""),
+            cache_dir=data.get("cache_dir"),
             chunks=data.get("chunks", {}),
         )
 
@@ -234,6 +259,8 @@ class WorkManager:
         copied_voice: Path | None = None,
         chunk_marks: list[dict[str, Any]] | None = None,
         seed: int = 0,
+        fingerprint: str = "",
+        cache_dir: Path | None = None,
     ) -> Manifest:
         """Initialize a new manifest with run parameters."""
         self._manifest = Manifest(
@@ -252,6 +279,8 @@ class WorkManager:
             if copied_voice
             else None,
             seed=seed,
+            fingerprint=fingerprint,
+            cache_dir=str(cache_dir) if cache_dir else None,
             chunks={},
         )
 
@@ -414,6 +443,61 @@ class WorkManager:
             manifest.chunks[sub_id] = {"status": "pending", "parent": str(parent_id)}
 
             self.save_manifest()
+
+    def chunk_key(self, text: str) -> str:
+        return hashlib.sha1(
+            f"{self.load_manifest().fingerprint}\0{text}".encode("utf-8")
+        ).hexdigest()
+
+    def cache_path(self, text: str) -> Path | None:
+        cache_dir = self.load_manifest().cache_dir
+        return Path(cache_dir) / f"{self.chunk_key(text)}.wav" if cache_dir else None
+
+    def _link(self, src: Path, dst: Path) -> None:
+        dst.unlink(missing_ok=True)
+        try:
+            os.link(src, dst)
+        except OSError:
+            shutil.copy2(src, dst)
+
+    def publish_audio(self, chunk_id: str, text: str) -> None:
+        target = self.cache_path(text)
+        if target is None:
+            return
+        key = self.chunk_key(text)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        self._link(self.get_chunk_audio_path(chunk_id), target)
+        with self._locked_manifest() as manifest:
+            manifest.chunks.setdefault(str(chunk_id), {})["key"] = key
+            self.save_manifest()
+
+    def restore_from_cache(self, chunk_id: str, text: str) -> bool:
+        source = self.cache_path(text)
+        if source is None or not wav_is_valid(source):
+            return False
+        key = self.chunk_key(text)
+        self._link(source, self.get_chunk_audio_path(chunk_id))
+        with self._locked_manifest() as manifest:
+            manifest.chunks.setdefault(str(chunk_id), {}).update(
+                status="completed", key=key, reused=True
+            )
+            self.save_manifest()
+        return True
+
+    def evict_cache(self, text: str) -> None:
+        target = self.cache_path(text)
+        if target is not None:
+            target.unlink(missing_ok=True)
+
+    def reset_invalid_audio(self) -> list[str]:
+        bad = [
+            cid
+            for cid in self.get_completed_chunks()
+            if not wav_is_valid(self.get_chunk_audio_path(cid))
+        ]
+        for cid in bad:
+            self.set_chunk_status(cid, "pending")
+        return bad
 
     def get_chunk_speed(self, chunk_id: str) -> float | None:
         """Speed set on the chunk or the nearest ancestor it was split from."""

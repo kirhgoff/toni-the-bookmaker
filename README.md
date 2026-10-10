@@ -193,6 +193,16 @@ Tune it with environment variables (or the matching `toni.cli` flags):
 is weak, raise `TONI_QC_WER`. Chunks under about 4 seconds skip the duration
 check because OmniVoice stretches very short text.
 
+## Edits and resume
+
+Every rendered chunk is also stored in `<book>/cache`, keyed by its text, the
+voice, engine, language, speed, steps and seed. Edit a typo in the source,
+change the narrator or switch engine and re-run: only chunks whose key changed
+are rendered, the rest are reused (the log says how many). Chunk WAVs are
+written atomically and checked on resume, so a render interrupted by sleep or
+power loss re-renders the truncated chunk instead of shipping a glitch. Delete
+`<book>/cache` to force a full re-render; `--cache-dir` moves it.
+
 ## Remote GPU rendering
 
 If you have access to a machine with an NVIDIA GPU, `-H <host>` sends the

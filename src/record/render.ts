@@ -32,6 +32,7 @@ export function cliArgs(o: RenderOptions, inDir: string, outDir: string): string
     "--chunk-pause", String(o.pauseMs),
     "--workers", String(o.workers),
     "--work-dir", `${outDir}/work`,
+    "--cache-dir", `${inDir}/cache`,
   ];
   if (o.voiceRef) args.push("-v", `${inDir}/voice_ref.wav`);
   if (o.lexicon) args.push("--lexicon", `${inDir}/lexicon.txt`);
