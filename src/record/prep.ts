@@ -1,4 +1,4 @@
-import { copyFile } from "node:fs/promises";
+import { copyFile, rm } from "node:fs/promises";
 import { extname } from "node:path";
 
 import { log, run, runOrThrow } from "./shell.ts";
@@ -137,23 +137,36 @@ export async function prepareCover(explicit: string | undefined, bookDir: string
   return coverFile;
 }
 
-const MIN_WORDS_PER_SECOND = 1.5;
+const MIN_WORDS_PER_SECOND = 1.0;
+const WORD_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "word" });
+
+export function countWords(text: string): number {
+  let count = 0;
+  for (const part of WORD_SEGMENTER.segment(text)) if (part.isWordLike) count++;
+  return count;
+}
 
 export async function fingerprintOf(path: string): Promise<string> {
   const bytes = await Bun.file(path).bytes();
   return `${bytes.length}-${new Bun.CryptoHasher("sha1").update(bytes).digest("hex")}`;
 }
 
-export function needsTranscription(transcriptExists: boolean, storedFingerprint: string | undefined, fingerprint: string): boolean {
-  return !transcriptExists || storedFingerprint?.trim() !== fingerprint;
+export function needsRegeneration(artifactExists: boolean, storedFingerprint: string | undefined, fingerprint: string): boolean {
+  return !artifactExists || storedFingerprint?.trim() !== fingerprint;
+}
+
+export async function discardVoiceReference(bookDir: string): Promise<void> {
+  for (const name of ["voice_ref.wav", "voice_ref.txt", "voice_ref.fingerprint", "voice_ref.source"]) {
+    await rm(`${bookDir}/${name}`, { force: true });
+  }
 }
 
 export function assertPlausibleTranscript(transcript: string, clipSeconds: number): void {
-  const words = transcript.split(/\s+/).filter(Boolean).length;
+  const words = countWords(transcript);
   if (words / clipSeconds >= MIN_WORDS_PER_SECOND) return;
   throw new Error(
     `Voice sample transcript has ${words} words for ${clipSeconds.toFixed(1)}s of audio ` +
-    `(expected at least ${MIN_WORDS_PER_SECOND}/s). The sample probably has no clear speech; ` +
+    `(expected at least ${MIN_WORDS_PER_SECOND.toFixed(1)}/s). The sample probably has no clear speech; ` +
     "use a clean recording of one speaker talking continuously, then re-run.",
   );
 }

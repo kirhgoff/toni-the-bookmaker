@@ -5,7 +5,7 @@ import { basename, resolve } from "node:path";
 
 import { resolvePreset, verifyBook } from "./loudness.ts";
 import {
-  assertPlausibleTranscript, CHAPTER_TITLES_FILE, audioDuration, fingerprintOf, needsTranscription,
+  assertPlausibleTranscript, CHAPTER_TITLES_FILE, audioDuration, discardVoiceReference, fingerprintOf, needsRegeneration,
   prepareCover, prepareSource, prepareVoiceReference,
 } from "./prep.ts";
 import { renderLocal, renderRemote, type RenderOptions } from "./render.ts";
@@ -153,26 +153,33 @@ async function main(): Promise<void> {
   const voiceRef = `${bookDir}/voice_ref.wav`;
   const refTextPath = `${bookDir}/voice_ref.txt`;
   const refFingerprintPath = `${bookDir}/voice_ref.fingerprint`;
+  const refSourcePath = `${bookDir}/voice_ref.source`;
+  const storedText = async (path: string) => (await Bun.file(path).exists()) ? await Bun.file(path).text() : undefined;
   if (voice) {
-    if (await Bun.file(voiceRef).exists()) {
-      log("Voice reference already prepared, reusing");
-    } else {
+    const sourceFingerprint = await fingerprintOf(voice);
+    if (needsRegeneration(await Bun.file(voiceRef).exists(), await storedText(refSourcePath), sourceFingerprint)) {
       log("Preparing voice reference");
+      await discardVoiceReference(bookDir);
       await prepareVoiceReference(voice, voiceRef);
+      await Bun.write(refSourcePath, sourceFingerprint);
+    } else {
+      log("Voice reference already prepared, reusing");
     }
 
     const fingerprint = await fingerprintOf(voiceRef);
-    const storedFingerprint = (await Bun.file(refFingerprintPath).exists())
-      ? await Bun.file(refFingerprintPath).text()
-      : undefined;
-    if (needsTranscription(await Bun.file(refTextPath).exists(), storedFingerprint, fingerprint)) {
+    if (needsRegeneration(await Bun.file(refTextPath).exists(), await storedText(refFingerprintPath), fingerprint)) {
       log("Transcribing reference (once, so render workers never load Whisper)");
       await rm(refFingerprintPath, { force: true });
       await runOrThrow([
         "uv", "run", "--project", PROJECT_DIR, "--extra", "omni",
         "python", "-m", "toni.transcribe", voiceRef, "-o", refTextPath,
       ]);
-      assertPlausibleTranscript(await Bun.file(refTextPath).text(), await audioDuration(voiceRef));
+      try {
+        assertPlausibleTranscript(await Bun.file(refTextPath).text(), await audioDuration(voiceRef));
+      } catch (error) {
+        await discardVoiceReference(bookDir);
+        throw error;
+      }
       await Bun.write(refFingerprintPath, fingerprint);
     }
     log(`  "${(await Bun.file(refTextPath).text()).slice(0, 60)}..."`);

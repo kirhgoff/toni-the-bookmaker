@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { assertPlausibleTranscript, fingerprintOf, needsTranscription, prepareCover } from "./prep.ts";
+import { assertPlausibleTranscript, countWords, discardVoiceReference, fingerprintOf, needsRegeneration, prepareCover } from "./prep.ts";
 
 async function bookDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "toni-cover-"));
@@ -32,11 +32,24 @@ test("rejects unsupported and oversized covers", async () => {
   await expect(prepareCover(join(dir, "big.png"), dir)).rejects.toThrow("8 MB");
 });
 
-test("transcript is redone when the clip fingerprint changes or the transcript is missing", () => {
-  expect(needsTranscription(true, "10-abc\n", "10-abc")).toBe(false);
-  expect(needsTranscription(true, "10-abc", "11-def")).toBe(true);
-  expect(needsTranscription(true, undefined, "10-abc")).toBe(true);
-  expect(needsTranscription(false, "10-abc", "10-abc")).toBe(true);
+test("an artifact is redone when its source fingerprint changes or the artifact is missing", () => {
+  expect(needsRegeneration(true, "10-abc\n", "10-abc")).toBe(false);
+  expect(needsRegeneration(true, "10-abc", "11-def")).toBe(true);
+  expect(needsRegeneration(true, undefined, "10-abc")).toBe(true);
+  expect(needsRegeneration(false, "10-abc", "10-abc")).toBe(true);
+});
+
+test("a failed voice reference is discarded entirely so the next run starts clean", async () => {
+  const dir = await bookDir();
+  for (const name of ["voice_ref.wav", "voice_ref.txt", "voice_ref.fingerprint", "voice_ref.source", "source.txt"]) {
+    await writeFile(join(dir, name), "x");
+  }
+  await discardVoiceReference(dir);
+  expect(await Bun.file(join(dir, "voice_ref.wav")).exists()).toBe(false);
+  expect(await Bun.file(join(dir, "voice_ref.txt")).exists()).toBe(false);
+  expect(await Bun.file(join(dir, "voice_ref.fingerprint")).exists()).toBe(false);
+  expect(await Bun.file(join(dir, "voice_ref.source")).exists()).toBe(false);
+  expect(await Bun.file(join(dir, "source.txt")).exists()).toBe(true);
 });
 
 test("fingerprint changes with the clip contents", async () => {
@@ -48,8 +61,17 @@ test("fingerprint changes with the clip contents", async () => {
   expect(await fingerprintOf(clip)).not.toBe(first);
 });
 
-test("transcript needs at least 1.5 words per second", () => {
-  expect(() => assertPlausibleTranscript("one two three four five six", 4)).not.toThrow();
-  expect(() => assertPlausibleTranscript("you", 7)).toThrow("no clear speech");
+test("words are counted per language, not by whitespace", () => {
+  expect(countWords("Thank you.")).toBe(2);
+  expect(countWords("你好，今天天气很好，我们一起去公园散步吧。")).toBeGreaterThan(6);
+});
+
+test("transcript needs at least 1 word per second", () => {
+  expect(() => assertPlausibleTranscript("one two three four five six", 6)).not.toThrow();
+  expect(() => assertPlausibleTranscript("Thank you.", 7)).toThrow("no clear speech");
   expect(() => assertPlausibleTranscript("", 5)).toThrow("0 words");
+});
+
+test("a Chinese transcript passes the plausibility check", () => {
+  expect(() => assertPlausibleTranscript("你好，今天天气很好，我们一起去公园散步吧。", 7)).not.toThrow();
 });
