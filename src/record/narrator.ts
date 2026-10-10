@@ -15,6 +15,10 @@ export interface NarratorInput {
   storedSource?: string;
 }
 
+export function seedsFrom(values: { seed?: string; "voice-seed"?: string }): { designSeed: string; renderSeed?: string } {
+  return { designSeed: values["voice-seed"] ?? "0", ...(values.seed ? { renderSeed: values.seed } : {}) };
+}
+
 export function sha1Hex(data: string | Uint8Array): string {
   return createHash("sha1").update(data).digest("hex");
 }

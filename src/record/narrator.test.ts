@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { narratorPlan, requestedSource, sha1Hex, type NarratorInput } from "./narrator.ts";
+import { narratorPlan, requestedSource, seedsFrom, sha1Hex, type NarratorInput } from "./narrator.ts";
 
 const BASE: NarratorInput = {
   model: "omni", language: "en", seed: "0", instruct: "", refExists: false, redesign: false,
@@ -60,4 +60,16 @@ test("leaves other engines and unsupported languages without a designed narrator
 test("provenance strings follow the documented format", () => {
   expect(requestedSource({ ...BASE, voiceSha1: "abc" })).toBe("sample:abc");
   expect(requestedSource({ ...BASE, seed: "7", instruct: "x" })).toBe(`designed:7:${sha1Hex("xen")}`);
+});
+
+test("--seed alone renders with that seed and never redesigns the narrator", () => {
+  expect(seedsFrom({ seed: "7" })).toEqual({ designSeed: "0", renderSeed: "7" });
+});
+
+test("--voice-seed picks the designed narrator only", () => {
+  expect(seedsFrom({ "voice-seed": "3" })).toEqual({ designSeed: "3" });
+});
+
+test("--seed and --voice-seed are independent", () => {
+  expect(seedsFrom({ seed: "7", "voice-seed": "4" })).toEqual({ designSeed: "4", renderSeed: "7" });
 });

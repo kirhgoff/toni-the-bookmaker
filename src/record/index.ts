@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
-import { narratorPlan, requestedSource, sha1Hex, type NarratorInput } from "./narrator.ts";
+import { narratorPlan, requestedSource, seedsFrom, sha1Hex, type NarratorInput } from "./narrator.ts";
 import { verifyBook } from "./loudness.ts";
 import { prepareSource, prepareVoiceReference, audioDuration } from "./prep.ts";
 import { renderLocal, renderRemote, type RenderOptions } from "./render.ts";
@@ -97,7 +97,7 @@ async function main(): Promise<void> {
       language: { type: "string", short: "l", default: "en" },
       model: { type: "string", short: "m", default: "omni" },
       seed: { type: "string" },
-      "voice-seed": { type: "string", default: "0" },
+      "voice-seed": { type: "string" },
       "redesign-voice": { type: "boolean", default: false },
       batch: { type: "string" },
       "no-qc": { type: "boolean", default: false },
@@ -153,11 +153,12 @@ async function main(): Promise<void> {
   const voiceRef = `${bookDir}/voice_ref.wav`;
   const refTextPath = `${bookDir}/voice_ref.txt`;
   const refSourcePath = `${bookDir}/voice_ref.source`;
+  const { designSeed, renderSeed } = seedsFrom(values);
   const narrator: NarratorInput = {
     ...(voice ? { voiceSha1: sha1Hex(new Uint8Array(await Bun.file(voice).arrayBuffer())) } : {}),
     model: values.model!,
     language: values.language!,
-    seed: values["voice-seed"]!,
+    seed: designSeed,
     instruct: process.env.TONI_OMNI_INSTRUCT ?? "",
     refExists: await Bun.file(voiceRef).exists(),
     redesign: values["redesign-voice"],
@@ -172,7 +173,7 @@ async function main(): Promise<void> {
     await runOrThrow([
       "uv", "run", "--project", PROJECT_DIR, "--extra", "omni",
       "python", "-m", "toni.design_voice", "--out", voiceRef, "--text-out", refTextPath,
-      "--language", values.language!, "--seed", values["voice-seed"]!,
+      "--language", values.language!, "--seed", designSeed,
     ]);
     log(`Designed narrator voice: listen to ${voiceRef} before the render finishes`);
   } else if (plan === "clone") {
@@ -202,7 +203,7 @@ async function main(): Promise<void> {
     workers: Number.parseInt(values.workers!, 10),
     language: values.language!,
     model: values.model!,
-    ...(values.seed ? { seed: values.seed } : {}),
+    ...(renderSeed ? { seed: renderSeed } : {}),
     ...(values.batch ? { batch: values.batch } : {}),
     qc: !values["no-qc"],
     ...(values.chapters ? { chapterPattern: values.chapters } : {}),
