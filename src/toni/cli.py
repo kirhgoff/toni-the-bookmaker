@@ -218,6 +218,13 @@ def _process_chunk_recursive(
     help="Regex matching chapter headings. Chapters are embedded for .m4b output.",
 )
 @click.option(
+    "--chapter-titles",
+    "chapter_titles_file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="File of chapter titles, one per line, in order; used instead of --chapter-pattern.",
+)
+@click.option(
     "--work-dir",
     type=click.Path(path_type=Path),
     default=None,
@@ -251,6 +258,7 @@ def main(
     cover_file: Path | None,
     bitrate: str,
     chapter_pattern: str,
+    chapter_titles_file: Path | None,
     work_dir: Path | None,
     max_retries: int,
     workers: int | None,
@@ -394,6 +402,15 @@ def main(
     audio_paths = [work.get_chunk_audio_path(cid) for cid in audio_chunk_ids]
     chunk_texts = [work.load_chunk_text(cid) for cid in audio_chunk_ids]
 
+    chapter_titles = (
+        [
+            " ".join(line.split())
+            for line in chapter_titles_file.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        if chapter_titles_file
+        else None
+    )
     work_output = work.work_dir / f"output{output_file.suffix or '.mp3'}"
     chapter_count = concatenate_with_ffmpeg(
         audio_paths=audio_paths,
@@ -407,6 +424,7 @@ def main(
         paragraph_ends=[work.ends_paragraph(cid) for cid in audio_chunk_ids],
         paragraph_pause_ms=paragraph_pause,
         cover_path=cover_file,
+        chapter_titles=chapter_titles,
     )
     if chapter_count:
         click.echo(f"Embedded {chapter_count} chapters")

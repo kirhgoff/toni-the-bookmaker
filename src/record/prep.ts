@@ -16,6 +16,8 @@ export function stripBoilerplate(raw: string): { text: string; stripped: number 
   return { text: `${body}\n`, stripped: raw.length - body.length };
 }
 
+export const CHAPTER_TITLES_FILE = "source.txt.chapters.txt";
+
 export async function prepareSource(input: string, dest: string, projectDir: string): Promise<void> {
   if (extname(input).toLowerCase() === ".epub") {
     await runOrThrow(["uv", "run", "--project", projectDir, "python", "-m", "toni.text_extractor", input, "-o", dest]);

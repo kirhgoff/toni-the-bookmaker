@@ -135,8 +135,12 @@ def build_chapters(
     pattern: str = DEFAULT_CHAPTER_PATTERN,
     paragraph_ends: list[bool] | None = None,
     paragraph_pause_ms: int | None = None,
+    titles: list[str] | None = None,
 ) -> tuple[list[tuple[int, str]], int]:
     """Locate chapter starts by timing the chunks whose text is a heading.
+
+    With titles, chunks opening with the next expected title start a chapter,
+    in order, and the pattern is not used.
 
     Offsets come from actual WAV durations rather than estimates, so they
     stay correct even when a chunk was split and re-rendered.
@@ -149,11 +153,16 @@ def build_chapters(
     paragraph_pause_ms = paragraph_pause_ms or pause_ms
     chapters: list[tuple[int, str]] = []
     offset = 0
+    expected = 0
 
     for index, (audio_path, text) in enumerate(zip(audio_paths, chunk_texts)):
         ends_paragraph = ends[index]
-        title = " ".join(((text or "").strip().split("\n") or [""])[0].split())
-        if title and len(title) <= MAX_HEADING_CHARS and heading.match(title):
+        title = " ".join((text or "").strip().split("\n")[0].split())
+        if titles is not None:
+            if expected < len(titles) and title == titles[expected]:
+                chapters.append((offset, title[:120]))
+                expected += 1
+        elif title and len(title) <= MAX_HEADING_CHARS and heading.match(title):
             if not chapters or chapters[-1][1] != title[:120]:
                 chapters.append((offset, title[:120]))
         offset += wav_duration_ms(audio_path)
@@ -195,6 +204,7 @@ def concatenate_with_ffmpeg(
     paragraph_ends: list[bool] | None = None,
     paragraph_pause_ms: int | None = None,
     cover_path: Path | None = None,
+    chapter_titles: list[str] | None = None,
 ) -> int:
     """Concatenate WAV files using ffmpeg concat demuxer and encode to MP3.
 
@@ -214,6 +224,7 @@ def concatenate_with_ffmpeg(
         paragraph_ends: Whether each chunk ends a paragraph, parallel to audio_paths.
         paragraph_pause_ms: Pause after a paragraph; defaults to 2x pause_ms.
         cover_path: JPEG/PNG embedded as cover art; .m4b outputs only.
+        chapter_titles: Ordered chapter titles that replace the heading pattern.
 
     Returns:
         Number of chapters embedded.
@@ -259,6 +270,7 @@ def concatenate_with_ffmpeg(
             chapter_pattern,
             ends,
             paragraph_pause_ms,
+            chapter_titles,
         )
 
     cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list_path)]

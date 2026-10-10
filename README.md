@@ -109,7 +109,7 @@ stress-marked.
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `-i, --input` | required | Source `.txt`, `.pdf` or `.epub` (spine order; cover, contents and copyright pages skipped; chapter titles become chapters) |
+| `-i, --input` | required | Source `.txt`, `.pdf` or `.epub` (spine order; pages marked cover, contents, title or copyright in the EPUB's landmarks or guide are skipped, as are short untagged pages before the first contents entry; the EPUB's own section titles become the chapters, narrated as written) |
 | `-v, --voice` | none | Voice sample to clone |
 | `-n, --name` | input filename | Output folder name |
 | `-t, --tag` | engine and host | Suffix for the run folder, e.g. `-t first-try` |
@@ -120,7 +120,7 @@ stress-marked.
 | `-f, --format` | m4b | `m4b` (with chapters) or `mp3` (no chapters) |
 | `--cover` | `cover.jpg`/`cover.png` in the book folder | Cover art (.jpg/.png, max 8 MB) embedded in the `m4b` |
 | `--loudness` | default | Loudness target: `default` (-18 LUFS) or `acx` (-19 LUFS ±1, true peak at most -3 dBTP, for Audible/ACX); the run fails if the finished file still misses the preset |
-| `-c, --chapters` | see below | Chapter heading pattern |
+| `-c, --chapters` | see below | Chapter heading pattern (ignored for EPUBs, whose titles come from the book itself) |
 | `-l, --language` | en | Language code |
 | `-m, --model` | omni | TTS engine: `omni`, `pocket`, `kani`, `espeech`, or `qwen` |
 | `-H, --host` | none | Render on a remote GPU host instead of locally |

@@ -5,7 +5,7 @@ import { basename, resolve } from "node:path";
 
 import { resolvePreset, verifyBook } from "./loudness.ts";
 import {
-  assertPlausibleTranscript, audioDuration, fingerprintOf, needsTranscription,
+  assertPlausibleTranscript, CHAPTER_TITLES_FILE, audioDuration, fingerprintOf, needsTranscription,
   prepareCover, prepareSource, prepareVoiceReference,
 } from "./prep.ts";
 import { renderLocal, renderRemote, type RenderOptions } from "./render.ts";
@@ -146,6 +146,10 @@ async function main(): Promise<void> {
     await prepareSource(input, source, PROJECT_DIR);
   }
 
+  const chapterTitlesFile = (await Bun.file(`${bookDir}/${CHAPTER_TITLES_FILE}`).exists())
+    ? CHAPTER_TITLES_FILE
+    : undefined;
+
   const voiceRef = `${bookDir}/voice_ref.wav`;
   const refTextPath = `${bookDir}/voice_ref.txt`;
   const refFingerprintPath = `${bookDir}/voice_ref.fingerprint`;
@@ -191,6 +195,7 @@ async function main(): Promise<void> {
     model: values.model!,
     ...(values.chapters ? { chapterPattern: values.chapters } : {}),
     ...(coverFile ? { coverFile } : {}),
+    ...(chapterTitlesFile ? { chapterTitlesFile } : {}),
     ...(voice ? { voiceRef } : {}),
     ...((await Bun.file(refTextPath).exists())
       ? { refText: await Bun.file(refTextPath).text() }

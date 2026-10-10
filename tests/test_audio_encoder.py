@@ -79,6 +79,22 @@ def test_heading_followed_by_single_newline_is_still_a_chapter(tmp_path):
     assert chapters == [(0, "CHAPTER 1")]
 
 
+def test_titles_start_chapters_in_order_and_ignore_the_pattern(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 1000) for i in range(4)]
+    texts = ["3. The Flood", "Глава 9 in the text", "Потоп", "Тихая ночь"]
+    chapters, _ = build_chapters(paths, texts, pause_ms=400, titles=["3. The Flood", "Потоп", "Тихая ночь"])
+    assert [title for _, title in chapters] == ["3. The Flood", "Потоп", "Тихая ночь"]
+    assert [start for start, _ in chapters] == [0, 2800, 4200]
+
+
+def test_titles_only_match_a_chunk_that_opens_with_the_next_expected_title(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 100) for i in range(3)]
+    texts = ["Second", "First", "Second"]
+    chapters, _ = build_chapters(paths, texts, pause_ms=400, titles=["First", "Second"])
+    assert [(title) for _, title in chapters] == ["First", "Second"]
+    assert [start for start, _ in chapters] == [500, 1000]
+
+
 SR = 24000
 
 

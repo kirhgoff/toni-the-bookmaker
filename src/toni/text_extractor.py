@@ -1,15 +1,15 @@
 """Text extraction from PDF, EPUB and text files."""
 
 import argparse
+import html
 import posixpath
 import re
+import sys
 import zipfile
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote
 from xml.etree import ElementTree
-
-from toni.audio_encoder import DEFAULT_CHAPTER_PATTERN, MAX_HEADING_CHARS
 
 
 def extract_text(file_path: Path) -> str:
@@ -83,7 +83,8 @@ def extract_from_text(file_path: Path) -> str:
 MAX_ENTRY_BYTES = 25 * 1024 * 1024
 MAX_TOTAL_BYTES = 300 * 1024 * 1024
 MAX_UNTAGGED_FRONT_MATTER_WORDS = 400
-FRONT_MATTER_TYPES = {"cover", "copyright-page", "toc"}
+FRONT_MATTER_TYPES = {"cover", "copyright-page", "toc", "titlepage"}
+XML_ENTITIES = {"amp", "lt", "gt", "quot", "apos"}
 BLOCK_TAGS = {
     "p", "div", "br", "li", "tr", "blockquote", "section", "article",
     "h1", "h2", "h3", "h4", "h5", "h6",
@@ -151,6 +152,8 @@ def _local(tag: str) -> str:
 
 
 def _read_entry(archive: zipfile.ZipFile, name: str) -> bytes:
+    if name not in archive.namelist():
+        raise ValueError(f"not a valid EPUB: {name} is missing")
     with archive.open(name) as entry:
         data = entry.read(MAX_ENTRY_BYTES + 1)
     if len(data) > MAX_ENTRY_BYTES:
@@ -170,31 +173,61 @@ def _resolve(base_dir: str, href: str) -> str:
     return posixpath.normpath(posixpath.join(base_dir, unquote(href.split("#")[0])))
 
 
-def _toc_titles(archive: zipfile.ZipFile, items: dict, spine_toc_id) -> dict[str, str]:
+def _parse_markup(archive: zipfile.ZipFile, name: str):
+    markup = _decode_markup(_read_entry(archive, name))
+    markup = re.sub(
+        r"&([A-Za-z][A-Za-z0-9]*);",
+        lambda m: m.group(0) if m.group(1) in XML_ENTITIES else (
+            "" if html.unescape(m.group(0)) == m.group(0) else html.unescape(m.group(0))
+        ),
+        markup,
+    )
+    return ElementTree.fromstring(markup)
+
+
+def _epub_types(element) -> set[str]:
+    return {
+        token
+        for key, value in element.attrib.items()
+        if _local(key) == "type"
+        for token in value.split()
+    }
+
+
+def _link_text(link) -> str:
+    return " ".join("".join(link.itertext()).split())
+
+
+def _navigation(archive: zipfile.ZipFile, items: dict, spine_toc_id) -> tuple[dict[str, str], set[str]]:
     titles: dict[str, str] = {}
+    front_matter: set[str] = set()
     nav = next((i for i in items.values() if "nav" in i["properties"]), None)
     ncx = items.get(spine_toc_id) if spine_toc_id else None
     if nav:
-        root = ElementTree.fromstring(_read_entry(archive, nav["path"]))
-        for element in root.iter():
-            if _local(element.tag) == "nav" and any(
-                value == "toc" for key, value in element.attrib.items() if _local(key) == "type"
-            ):
-                for link in element.iter():
-                    if _local(link.tag) == "a" and link.get("href"):
-                        text = " ".join("".join(link.itertext()).split())
-                        titles.setdefault(_resolve(posixpath.dirname(nav["path"]), link.get("href")), text)
+        front_matter.add(nav["path"])
+        base = posixpath.dirname(nav["path"])
+        for element in _parse_markup(archive, nav["path"]).iter():
+            if _local(element.tag) != "nav":
+                continue
+            kinds = _epub_types(element)
+            for link in element.iter():
+                if _local(link.tag) != "a" or not link.get("href"):
+                    continue
+                target = _resolve(base, link.get("href"))
+                if "toc" in kinds:
+                    titles.setdefault(target, _link_text(link))
+                if "landmarks" in kinds and _epub_types(link) & FRONT_MATTER_TYPES:
+                    front_matter.add(target)
     elif ncx:
-        root = ElementTree.fromstring(_read_entry(archive, ncx["path"]))
-        for point in root.iter():
+        base = posixpath.dirname(ncx["path"])
+        for point in _parse_markup(archive, ncx["path"]).iter():
             if _local(point.tag) != "navPoint":
                 continue
             label = next((e for e in point.iter() if _local(e.tag) == "text"), None)
             content = next((e for e in point.iter() if _local(e.tag) == "content"), None)
             if label is not None and content is not None and content.get("src"):
-                text = " ".join("".join(label.itertext()).split())
-                titles.setdefault(_resolve(posixpath.dirname(ncx["path"]), content.get("src")), text)
-    return titles
+                titles.setdefault(_resolve(base, content.get("src")), _link_text(label))
+    return titles, front_matter
 
 
 def _guide_front_matter(root, opf_dir: str) -> set[str]:
@@ -207,20 +240,8 @@ def _guide_front_matter(root, opf_dir: str) -> set[str]:
     }
 
 
-def _chapter_heading(title: str, number: int) -> str:
-    if not re.match(DEFAULT_CHAPTER_PATTERN, title):
-        title = f"Chapter {number}. {title}"
-    if len(title) > MAX_HEADING_CHARS:
-        title = title[:MAX_HEADING_CHARS].rsplit(" ", 1)[0]
-    return title
-
-
-def extract_from_epub(file_path: Path) -> str:
-    """Extract narratable text from an EPUB, following its spine order.
-
-    Cover, contents and copyright pages are dropped, and chapter titles become
-    heading lines that the default chapter pattern matches.
-    """
+def extract_epub(file_path: Path) -> tuple[str, list[str]]:
+    """Narratable text in spine order, plus the section titles in reading order."""
     try:
         archive = zipfile.ZipFile(file_path)
     except zipfile.BadZipFile as error:
@@ -229,7 +250,9 @@ def extract_from_epub(file_path: Path) -> str:
     with archive:
         _check_archive_size(archive)
         container = ElementTree.fromstring(_read_entry(archive, CONTAINER_PATH))
-        rootfile = next(e for e in container.iter() if _local(e.tag) == "rootfile")
+        rootfile = next((e for e in container.iter() if _local(e.tag) == "rootfile"), None)
+        if rootfile is None or not rootfile.get("full-path"):
+            raise ValueError("not a valid EPUB: container.xml names no package file")
         opf_path = rootfile.get("full-path")
         opf_dir = posixpath.dirname(opf_path)
         opf = ElementTree.fromstring(_read_entry(archive, opf_path))
@@ -248,20 +271,25 @@ def extract_from_epub(file_path: Path) -> str:
             for ref in spine
             if _local(ref.tag) == "itemref" and ref.get("idref") in items
         ]
-        titles = _toc_titles(archive, items, spine.get("toc"))
-        guide_skipped = _guide_front_matter(opf, opf_dir)
+        titles, landmark_skipped = _navigation(archive, items, spine.get("toc"))
+        skipped = landmark_skipped | _guide_front_matter(opf, opf_dir)
+        first_listed = next((i for i, path in enumerate(spine_paths) if path in titles), len(spine_paths))
+        present = set(archive.namelist())
 
         sections: list[str] = []
-        chapter_number = 0
-        for path in spine_paths:
+        section_titles: list[str] = []
+        for index, path in enumerate(spine_paths):
+            if path not in present:
+                print(f"warning: spine item {path} is missing from the EPUB, skipped", file=sys.stderr)
+                continue
             parser = _TextBlocks()
             parser.feed(_decode_markup(_read_entry(archive, path)))
             parser.close()
             blocks = parser.blocks
-            if path in guide_skipped or parser.epub_types & FRONT_MATTER_TYPES:
+            if path in skipped or parser.epub_types & FRONT_MATTER_TYPES:
                 continue
             words = sum(len(text.split()) for _, text in blocks)
-            if titles and path not in titles and words <= MAX_UNTAGGED_FRONT_MATTER_WORDS:
+            if index < first_listed and titles and words <= MAX_UNTAGGED_FRONT_MATTER_WORDS:
                 continue
             if not blocks:
                 continue
@@ -272,11 +300,19 @@ def extract_from_epub(file_path: Path) -> str:
                 title = titles.get(path, "")
             lines = [text for _, text in blocks]
             if title:
-                chapter_number += 1
-                lines.insert(0, _chapter_heading(title, chapter_number))
+                section_titles.append(title)
+                lines.insert(0, title)
             sections.append("\n\n".join(lines))
 
-    return "\n\n".join(sections)
+    return "\n\n".join(sections), section_titles
+
+
+def extract_from_epub(file_path: Path) -> str:
+    return extract_epub(file_path)[0]
+
+
+def chapter_titles_path(text_path: Path) -> Path:
+    return text_path.with_name(text_path.name + ".chapters.txt")
 
 
 def main() -> None:
@@ -284,7 +320,13 @@ def main() -> None:
     parser.add_argument("input", type=Path)
     parser.add_argument("-o", "--output", type=Path, required=True)
     args = parser.parse_args()
-    args.output.write_text(extract_text(args.input) + "\n", encoding="utf-8")
+    if args.input.suffix.lower() == ".epub":
+        text, titles = extract_epub(args.input)
+        if titles:
+            chapter_titles_path(args.output).write_text("\n".join(titles) + "\n", encoding="utf-8")
+    else:
+        text = extract_text(args.input)
+    args.output.write_text(text + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

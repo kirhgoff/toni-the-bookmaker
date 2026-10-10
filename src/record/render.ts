@@ -18,6 +18,7 @@ export interface RenderOptions {
   voiceRef?: string;
   refText?: string;
   coverFile?: string;
+  chapterTitlesFile?: string;
 }
 
 function cliArgs(o: RenderOptions, inDir: string, outDir: string): string[] {
@@ -32,6 +33,7 @@ function cliArgs(o: RenderOptions, inDir: string, outDir: string): string[] {
   ];
   if (o.voiceRef) args.push("-v", `${inDir}/voice_ref.wav`);
   if (o.coverFile) args.push("--cover", `${inDir}/${o.coverFile}`);
+  if (o.chapterTitlesFile) args.push("--chapter-titles", `${inDir}/${o.chapterTitlesFile}`);
   if (o.chapterPattern) args.push("--chapter-pattern", o.chapterPattern);
   return args;
 }
@@ -92,6 +94,8 @@ export async function renderRemote(hostName: string, o: RenderOptions): Promise<
   if (o.voiceRef) await rsync(o.voiceRef, `${host.ssh}:${jobDir}/voice_ref.wav`);
 
   if (o.coverFile) await rsync(`${o.bookDir}/${o.coverFile}`, `${host.ssh}:${jobDir}/${o.coverFile}`);
+
+  if (o.chapterTitlesFile) await rsync(`${o.bookDir}/${o.chapterTitlesFile}`, `${host.ssh}:${jobDir}/${o.chapterTitlesFile}`);
 
   const envExports = Object.entries(host.env ?? {})
     .map(([k, v]) => `export ${k}=${v}`).join("\n");
