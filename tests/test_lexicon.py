@@ -56,3 +56,17 @@ def test_cyrillic_boundaries_and_stress_marks():
 def test_chunk_text_applies_lexicon_after_normalisation():
     chunks = chunk_text("Dr. Gandalf has 3 rings.", language="en", lexicon={"gandalf": "Gand-alf"})
     assert chunks == ["Doctor Gand-alf has three rings."]
+
+
+@pytest.mark.parametrize(
+    "key, text, expected",
+    [
+        ("ΟΔΟΣ", "ΟΔΟΣ", "odos"),
+        ("οδος", "ΟΔΟΣ", "odos"),
+        ("ΟΔΟΣ", "οδος", "odos"),
+        ("STRASSE", "Straße", "odos"),
+        ("Straße", "STRASSE", "odos"),
+    ],
+)
+def test_keys_and_text_fold_identically(key, text, expected):
+    assert apply_lexicon(text, {key: "odos"}) == expected
