@@ -118,17 +118,21 @@ warning is printed.
 
 Put a `lexicon.txt` next to the book's `source.txt`
 (`~/Downloads/audiobooks/<name>/`) to fix names and foreign words across the
-whole book, one `term = respelling` per line; `#` starts a comment:
+whole book, one `term = respelling` per line; a line starting with `#` is a
+comment, and a `#` elsewhere is part of the line (`C# = see sharp`). Lines that
+cannot be parsed are skipped with a warning:
 
 ```
+# longest match wins, stress marks are kept
 Gandalf = Gand-alf
-New York = Noo Yorrk   # longest match wins
-Аня = Ан+я             # stress marks are kept
+New York = Noo Yorrk
+Аня = Ан+я
 ```
 
 Matching is case-insensitive, on whole words, longest term first, in one pass
-(a respelling is never re-replaced), after normalisation and before Russian
-stress marking. It is also sent to remote hosts. A running render keeps the
+(a respelling is never re-replaced). It runs after normalisation and before
+Russian stress marking, so write terms the way they read after normalisation,
+in spoken form (`Catch twenty-two`, not `Catch-22`). It is also sent to remote hosts. A running render keeps the
 chunks it already made — start a new run (`-t`) to apply a changed lexicon.
 
 ### Russian stress marking
