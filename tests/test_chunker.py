@@ -10,6 +10,10 @@ from toni.chunker import chunk_text, split_into_sentences
         ("Dr. Who met Prof. Plum at 5 p.m. Then they ate.", ["Dr. Who met Prof. Plum at 5 p.m. Then they ate."]),
         ("Он ушел, т. е. сбежал. Потом вернулся.", ["Он ушел, т. е. сбежал.", "Потом вернулся."]),
         ("Это было в 1812 г. Наполеон вошел в город.", ["Это было в 1812 г. Наполеон вошел в город."]),
+        ("J. R. R. Tolkien wrote it. Then he left.", ["J. R. R. Tolkien wrote it.", "Then he left."]),
+        ("Vol. II is out. Read it.", ["Vol. II is out.", "Read it."]),
+        ("Я позвонил им. Они ответили.", ["Я позвонил им.", "Они ответили."]),
+        ("Книги, журналы и др. Потом он ушел.", ["Книги, журналы и др.", "Потом он ушел."]),
         ("Pi is 3.14 roughly. Next point.", ["Pi is 3.14 roughly.", "Next point."]),
     ],
 )

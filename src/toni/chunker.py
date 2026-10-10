@@ -9,9 +9,10 @@ from toni.text_normalization import normalization_enabled, normalize_speech_text
 
 ABBREVIATIONS = frozenset({
     "mr", "mrs", "ms", "dr", "prof", "st", "jr", "sr", "vs", "etc",
-    "e.g", "i.e", "a.m", "p.m",
-    "т.е", "т.д", "т.п", "г", "гг", "ул", "им", "др", "проф",
+    "e.g", "i.e", "a.m", "p.m", "vol", "ch", "no", "fig", "p", "pp",
+    "т.е", "т.д", "т.п", "г", "гг", "ул", "проф",
 })
+INITIAL = re.compile(r"[A-ZА-ЯЁ]")
 SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?…])\s+(?=[\"«\'(\u2014-]?\+?[^\W\d_a-zа-яё])")
 CLAUSE_MARK = r"(?:(?<!\d)[,:]|[,:](?!\d)|[;\-—])"
 TERMINAL_PUNCTUATION = re.compile(r"[.!?…,:;\-—][\"»”\')\]]*$")
@@ -236,7 +237,7 @@ def ends_with_abbreviation(sentence: str) -> bool:
     return any(
         word.lstrip("\"«'(").rstrip(".").lower() in ABBREVIATIONS
         for word in candidates
-    )
+    ) or INITIAL.fullmatch(words[-1].lstrip("\"«'(").rstrip("."))
 
 
 def split_long_sentence(sentence: str, max_chars: int) -> list[str]:

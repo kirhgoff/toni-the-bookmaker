@@ -72,3 +72,7 @@ def test_numbers_the_tts_normaliser_owns_are_left_alone(text):
 
 def test_plain_numbers_separated_by_a_space_are_still_spoken():
     assert normalize_speech_text("5 apples and 7 pears", "en") == "five apples and seven pears"
+
+
+def test_russian_pronoun_im_is_not_expanded():
+    assert normalize_speech_text("Я позвонил им. Они ответили.", "ru") == "Я позвонил им. Они ответили."
