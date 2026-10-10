@@ -118,6 +118,7 @@ stress-marked.
 | `-b, --bitrate` | 64k | Audio bitrate |
 | `-p, --pause` | 500 | Pause between sentences and chunks, in milliseconds; paragraph ends get twice that |
 | `-f, --format` | m4b | `m4b` (with chapters) or `mp3` (no chapters) |
+| `--cover` | `cover.jpg`/`cover.png` in the book folder | Cover art (.jpg/.png, max 8 MB) embedded in the `m4b` |
 | `-c, --chapters` | see below | Chapter heading pattern |
 | `-l, --language` | en | Language code |
 | `-m, --model` | omni | TTS engine: `omni`, `pocket`, `kani`, `espeech`, or `qwen` |

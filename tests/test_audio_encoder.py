@@ -1,4 +1,8 @@
+import json
+import struct
+import subprocess
 import wave
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -122,3 +126,40 @@ def test_concat_inserts_paragraph_silence(tmp_path):
     )
     assert (tmp_path / "silence_400.wav").exists()
     assert not (tmp_path / "silence_200.wav").exists()
+
+
+def tiny_png(path: Path) -> Path:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    header = struct.pack(">IIBBBBB", 2, 2, 8, 2, 0, 0, 0)
+    pixels = zlib.compress(b"".join(b"\x00" + b"\xff\x00\x00" * 2 for _ in range(2)))
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", pixels) + chunk(b"IEND", b"")
+    )
+    return path
+
+
+def stream_kinds(path: Path) -> list[str]:
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(path)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return [
+        "cover" if s["disposition"]["attached_pic"] else s["codec_type"]
+        for s in json.loads(probe.stdout)["streams"]
+    ]
+
+
+def test_m4b_embeds_cover_and_mp3_ignores_it(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 500) for i in range(2)]
+    cover = tiny_png(tmp_path / "cover.png")
+    m4b = tmp_path / "out.m4b"
+    mp3 = tmp_path / "out.mp3"
+    concatenate_with_ffmpeg(paths, m4b, 24000, chunk_texts=["CHAPTER 1", "Text."], cover_path=cover)
+    concatenate_with_ffmpeg(paths, mp3, 24000, cover_path=cover)
+    assert {"audio", "cover"} <= set(stream_kinds(m4b))
+    assert stream_kinds(mp3) == ["audio"]

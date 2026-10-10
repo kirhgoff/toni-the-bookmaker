@@ -4,7 +4,7 @@ import { mkdir, readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
 import { verifyBook } from "./loudness.ts";
-import { prepareSource, prepareVoiceReference, audioDuration } from "./prep.ts";
+import { prepareCover, prepareSource, prepareVoiceReference, audioDuration } from "./prep.ts";
 import { renderLocal, renderRemote, type RenderOptions } from "./render.ts";
 import { log, requireCommand, run, runOrThrow } from "./shell.ts";
 
@@ -21,6 +21,7 @@ const USAGE = `Record an audiobook from a text or PDF file.
   -b, --bitrate RATE    Audio bitrate (default: 64k)
   -p, --pause MS        Pause between sentences and chunks in milliseconds (default: 500)
   -f, --format FORMAT   m4b (default, with chapters) or mp3
+      --cover IMAGE     Cover art (.jpg or .png) for m4b; defaults to cover.jpg/cover.png in the book folder
   -c, --chapters REGEX  Chapter heading pattern
   -l, --language LANG   Language code (default: en)
   -m, --model MODEL     TTS engine: omni (default), pocket, kani, espeech, qwen
@@ -86,6 +87,7 @@ async function main(): Promise<void> {
       pause: { type: "string", short: "p", default: "500" },
       format: { type: "string", short: "f", default: "m4b" },
       chapters: { type: "string", short: "c" },
+      cover: { type: "string" },
       language: { type: "string", short: "l", default: "en" },
       model: { type: "string", short: "m", default: "omni" },
       host: { type: "string", short: "H" },
@@ -152,6 +154,10 @@ async function main(): Promise<void> {
     log("Voice reference already prepared, reusing");
   }
 
+  const coverFile = values.format === "m4b"
+    ? await prepareCover(values.cover ? resolve(values.cover) : undefined, bookDir)
+    : undefined;
+
   const options: RenderOptions = {
     projectDir: PROJECT_DIR,
     bookDir,
@@ -164,6 +170,7 @@ async function main(): Promise<void> {
     language: values.language!,
     model: values.model!,
     ...(values.chapters ? { chapterPattern: values.chapters } : {}),
+    ...(coverFile ? { coverFile } : {}),
     ...(voice ? { voiceRef } : {}),
     ...((await Bun.file(refTextPath).exists())
       ? { refText: await Bun.file(refTextPath).text() }

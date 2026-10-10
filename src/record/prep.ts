@@ -1,3 +1,6 @@
+import { copyFile } from "node:fs/promises";
+import { extname } from "node:path";
+
 import { log, run, runOrThrow } from "./shell.ts";
 
 const GUTENBERG_START = /\*\*\*\s*START OF (?:THE|THIS) PROJECT GUTENBERG[^\n]*\n/;
@@ -103,4 +106,27 @@ export async function prepareVoiceReference(source: string, dest: string): Promi
     dest,
   ]);
   log(`  voice reference trimmed to ${(to - from).toFixed(1)}s`);
+}
+
+const COVER_EXTENSIONS = [".jpg", ".jpeg", ".png"];
+const MAX_COVER_BYTES = 8 * 1024 * 1024;
+
+/** Resolve the cover to a file inside bookDir, so local and remote renders find it the same way. */
+export async function prepareCover(explicit: string | undefined, bookDir: string): Promise<string | undefined> {
+  if (!explicit) {
+    for (const extension of COVER_EXTENSIONS) {
+      if (await Bun.file(`${bookDir}/cover${extension}`).exists()) return `cover${extension}`;
+    }
+    return undefined;
+  }
+
+  const extension = extname(explicit).toLowerCase();
+  if (!COVER_EXTENSIONS.includes(extension)) throw new Error(`Cover must be a .jpg or .png file: ${explicit}`);
+  const file = Bun.file(explicit);
+  if (!(await file.exists())) throw new Error(`Cover not found: ${explicit}`);
+  if (file.size > MAX_COVER_BYTES) throw new Error(`Cover is larger than 8 MB: ${explicit}`);
+
+  const coverFile = `cover${extension}`;
+  if (`${bookDir}/${coverFile}` !== explicit) await copyFile(explicit, `${bookDir}/${coverFile}`);
+  return coverFile;
 }

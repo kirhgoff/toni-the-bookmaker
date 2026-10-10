@@ -198,6 +198,13 @@ def _process_chunk_recursive(
     help="Pause after a paragraph in milliseconds. Default: twice --chunk-pause.",
 )
 @click.option(
+    "--cover",
+    "cover_file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Cover image (JPEG or PNG) to embed in .m4b output.",
+)
+@click.option(
     "--bitrate",
     type=str,
     default="64k",
@@ -241,6 +248,7 @@ def main(
     model: str,
     chunk_pause: int,
     paragraph_pause: int | None,
+    cover_file: Path | None,
     bitrate: str,
     chapter_pattern: str,
     work_dir: Path | None,
@@ -398,6 +406,7 @@ def main(
         chapter_pattern=chapter_pattern,
         paragraph_ends=[work.ends_paragraph(cid) for cid in audio_chunk_ids],
         paragraph_pause_ms=paragraph_pause,
+        cover_path=cover_file,
     )
     if chapter_count:
         click.echo(f"Embedded {chapter_count} chapters")

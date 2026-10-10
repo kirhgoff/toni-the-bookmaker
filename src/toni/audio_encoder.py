@@ -194,6 +194,7 @@ def concatenate_with_ffmpeg(
     chapter_pattern: str = DEFAULT_CHAPTER_PATTERN,
     paragraph_ends: list[bool] | None = None,
     paragraph_pause_ms: int | None = None,
+    cover_path: Path | None = None,
 ) -> int:
     """Concatenate WAV files using ffmpeg concat demuxer and encode to MP3.
 
@@ -212,6 +213,7 @@ def concatenate_with_ffmpeg(
         chapter_pattern: Regex matched against the start of each chunk's text.
         paragraph_ends: Whether each chunk ends a paragraph, parallel to audio_paths.
         paragraph_pause_ms: Pause after a paragraph; defaults to 2x pause_ms.
+        cover_path: JPEG/PNG embedded as cover art; .m4b outputs only.
 
     Returns:
         Number of chapters embedded.
@@ -260,11 +262,21 @@ def concatenate_with_ffmpeg(
         )
 
     cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list_path)]
+    output_options: list[str] = []
 
     if chapters:
         metadata_path = work_dir / "chapters.txt"
         write_ffmetadata(chapters, total_ms, metadata_path)
-        cmd += ["-i", str(metadata_path), "-map_metadata", "1"]
+        cmd += ["-i", str(metadata_path)]
+        output_options += ["-map_metadata", "1"]
+
+    if cover_path and output_path.suffix.lower() == ".m4b":
+        cover_input = 2 if chapters else 1
+        cmd += ["-i", str(cover_path)]
+        output_options += ["-map", "0:a", "-map", f"{cover_input}:v"]
+        output_options += ["-c:v", "copy", "-disposition:v:0", "attached_pic"]
+
+    cmd += output_options
 
     if wants_chapters:
         cmd += ["-c:a", "aac", "-b:a", bitrate, "-movflags", "+faststart"]
