@@ -65,3 +65,38 @@ def test_gave_up_chunk_keeps_its_verdict_and_is_not_rerendered(fake, tmp_path) -
     work = run_toni(tmp_path / "b", THREE, *args)
     assert (len(fake.takes), fake.transcribed) == (takes, transcribed)
     assert work.load_manifest().chunks["1"]["qc"]["verdict"] == "fail"
+
+
+@requires_ffmpeg
+def test_cached_pass_is_rejudged_with_current_thresholds(fake, tmp_path) -> None:
+    fake.say = lambda text: text.replace("Second", "Sekond")
+    cache = tmp_path / "cache"
+    work = run_toni(tmp_path / "a", THREE, "--cache-dir", str(cache))
+    assert work.load_manifest().chunks["1"]["qc"]["verdict"] == "pass"
+    takes, transcribed = len(fake.takes), fake.transcribed
+
+    work = run_toni(
+        tmp_path / "b", THREE, "--cache-dir", str(cache),
+        "--qc-wer", "0.1", "--qc-retries", "0", "--max-retries", "0",
+    )
+    qc = work.load_manifest().chunks["1"]["qc"]
+    assert (qc["verdict"], qc["wer"]) == ("fail", 0.25)
+    assert (len(fake.takes), fake.transcribed) == (takes, transcribed)
+
+
+@requires_ffmpeg
+def test_gave_up_chunk_retries_when_the_budget_grows(fake, tmp_path) -> None:
+    fake.bad_takes = {CHUNKS[1]: 9}
+    cache = tmp_path / "cache"
+    run_toni(tmp_path / "a", THREE, "--cache-dir", str(cache), "--qc-retries", "1", "--max-retries", "0")
+    assert [t for t, _ in fake.takes].count(CHUNKS[1]) == 2
+    transcribed = fake.transcribed
+
+    work = run_toni(
+        tmp_path / "b", THREE, "--cache-dir", str(cache), "--qc-retries", "3", "--max-retries", "0"
+    )
+    assert [t for t, _ in fake.takes].count(CHUNKS[1]) == 4
+    assert fake.transcribed == transcribed + 2
+    chunk = work.load_manifest().chunks["1"]
+    assert chunk["retries"] == 3
+    assert chunk["qc"]["verdict"] == "fail"

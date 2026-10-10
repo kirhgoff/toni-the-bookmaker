@@ -235,8 +235,10 @@ change the narrator or switch engine and re-run: only chunks whose key changed
 are rendered, the rest are reused (the log says how many). Chunk WAVs are
 written atomically and checked on resume, so a render interrupted by sleep or
 power loss re-renders the truncated chunk instead of shipping a glitch. A chunk's QC
-verdict is stored beside its audio, so a chunk QC gave up on is not re-checked
-or re-rendered on the next run. Delete `<book>/cache` to force a full
+measurements are stored beside its audio: a reused chunk is judged again against
+the current thresholds without running Whisper, and a chunk QC gave up on is
+retried only if `--qc-retries` (or `TONI_QC_RETRIES`) is raised. Whisper is
+loaded only when some chunk actually needs transcribing. Delete `<book>/cache` to force a full
 re-render; `--cache-dir` moves it. Remote renders keep the same cache per book
 on the host (`<workdir>/<book>/cache`), shared by every run folder.
 

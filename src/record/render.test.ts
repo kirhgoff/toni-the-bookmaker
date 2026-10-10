@@ -49,3 +49,11 @@ test("remote renders mount a per-book cache that outlives the run folder", () =>
   expect(script).toContain("'--cache-dir' '/cache'");
   expect(script).not.toContain("/books/cache");
 });
+
+test("remote container names are sanitised and quoted", () => {
+  const host = { ssh: "u@h", identity: ".ssh/k", shell: "bash -s", workdir: "books" };
+  const script = remoteScript(
+    { ...OPTIONS, name: "my book" }, host, "/home/u/books/my book/run", "/home/u/books/my book/cache",
+  );
+  expect(script).toContain("CONTAINER='toni-my-book'");
+});

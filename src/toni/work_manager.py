@@ -406,7 +406,7 @@ class WorkManager:
         return [
             chunk_id
             for chunk_id, data in manifest.chunks.items()
-            if data.get("status") == "completed" and "qc" not in data
+            if data.get("status") == "completed" and "verdict" not in data.get("qc", {})
         ]
 
     def get_failed_chunks(self) -> list[str]:
@@ -488,7 +488,9 @@ class WorkManager:
             chunk = manifest.chunks.setdefault(str(chunk_id), {})
             chunk.update(status="completed", key=key, reused=True)
             if qc_path.exists():
-                chunk["qc"] = json.loads(qc_path.read_text())
+                qc = json.loads(qc_path.read_text())
+                chunk["retries"] = qc.get("attempts", 0)
+                chunk["qc"] = {k: v for k, v in qc.items() if k != "verdict"}
             self.save_manifest()
         return True
 

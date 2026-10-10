@@ -93,7 +93,7 @@ export function remoteScript(o: RenderOptions, host: RenderHost, jobDir: string,
     host.leaseAcquire ?? "",
     // A container outlives the ssh session that started it, so name it: kill
     // any leftover from an interrupted run, and take it down on exit.
-    `CONTAINER=toni-${o.name}`,
+    `CONTAINER=${shellQuote(`toni-${o.name.replace(/[^\w.-]+/g, "-")}`)}`,
     `${runtime} rm -f "$CONTAINER" >/dev/null 2>&1 || true`,
     `trap '${runtime} rm -f "$CONTAINER" >/dev/null 2>&1' EXIT INT TERM HUP`,
     `${runtime} run --rm --name "$CONTAINER" ${gpuArgs} -v "$WORKDIR:/books" ` +

@@ -251,7 +251,7 @@ def _batches(work: "WorkManager", pending: list[str], width: int) -> list[list[s
 
 def qc_pass(
     work: "WorkManager",
-    transcriber: Callable[[np.ndarray, int], str],
+    load_transcriber: Callable[[], Callable[[np.ndarray, int], str]],
     thresholds: Thresholds,
     qc_retries: int,
     max_retries: int,
@@ -259,22 +259,28 @@ def qc_pass(
     sample_rate: int,
     language: str | None = None,
 ) -> tuple[int, int, int, int]:
+    transcriber = None
     heard = []
     errors = 0
     for cid in work.get_unchecked_chunks():
         text = work.load_chunk_text(cid)
-        audio = load_chunk_wav(work.get_chunk_audio_path(cid))
         seconds = expected(text, work.get_chunk_speed(cid))
-        try:
-            hypothesis = transcriber(audio, sample_rate)
-        except Exception as e:
-            message = str(e)[:100]
-            click.echo(f"QC error {cid}: {message}")
-            work.set_chunk_status(cid, "completed", qc={"verdict": "error", "error": message})
-            errors += 1
-            continue
-        wer = word_error_rate(spoken_form(text, language), spoken_form(hypothesis, language))
-        ratio = len(audio) / sample_rate / seconds if seconds else 1.0
+        stored = work.load_manifest().chunks[cid].get("qc")
+        if stored:
+            wer, ratio = stored["wer"], stored["ratio"]
+        else:
+            transcriber = transcriber or load_transcriber()
+            audio = load_chunk_wav(work.get_chunk_audio_path(cid))
+            try:
+                hypothesis = transcriber(audio, sample_rate)
+            except Exception as e:
+                message = str(e)[:100]
+                click.echo(f"QC error {cid}: {message}")
+                work.set_chunk_status(cid, "completed", qc={"verdict": "error", "error": message})
+                errors += 1
+                continue
+            wer = word_error_rate(spoken_form(text, language), spoken_form(hypothesis, language))
+            ratio = len(audio) / sample_rate / seconds if seconds else 1.0
         heard.append((cid, text, wer, ratio, seconds))
 
     median = calibration_median(
@@ -313,7 +319,7 @@ def _checked_ratios(work: "WorkManager", expected: Callable[[str, float | None],
     return [
         data["qc"]["ratio"]
         for cid, data in work.load_manifest().chunks.items()
-        if "qc" in data
+        if "verdict" in data.get("qc", {})
         and expected(work.load_chunk_text(cid), work.get_chunk_speed(cid)) >= MIN_CHECKED_SECONDS
     ]
 
@@ -611,6 +617,11 @@ def main(
     def expected(text: str, chunk_speed: float | None) -> float:
         return expected_seconds(text, ref_text, ref_seconds, base_speed * (chunk_speed or 1.0))
 
+    def load_asr():
+        from toni.transcribe import load_transcriber
+
+        return load_transcriber(os.environ.get("TONI_OMNI_DEVICE"))
+
     totals = [0, 0, 0, 0]
     while True:
         render_pending(
@@ -618,19 +629,15 @@ def main(
         )
         if not qc or not work.get_unchecked_chunks():
             break
+        click.echo("Checking chunks...")
         try:
-            from toni.transcribe import load_transcriber
-
-            transcriber = load_transcriber(os.environ.get("TONI_OMNI_DEVICE"))
+            counts = qc_pass(
+                work, load_asr, thresholds, qc_retries, max_retries, expected, manifest.sample_rate,
+                os.environ.get("TONI_LANGUAGE"),
+            )
         except ImportError:
             click.echo("QC skipped: transformers is not installed (install an engine extra such as omni)")
             break
-        click.echo("Checking chunks with ASR...")
-        counts = qc_pass(
-            work, transcriber, thresholds, qc_retries, max_retries, expected, manifest.sample_rate,
-            os.environ.get("TONI_LANGUAGE"),
-        )
-        del transcriber
         totals = [a + b for a, b in zip(totals, counts)]
         if not counts[1]:
             break
