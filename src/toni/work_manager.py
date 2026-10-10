@@ -261,6 +261,10 @@ class WorkManager:
         """Get path for a chunk's text file."""
         return self.chunks_dir / f"{chunk_id}.txt"
 
+    def get_chunk_raw_text_path(self, chunk_id: str) -> Path:
+        """Get path for a chunk's pre-normalisation text file."""
+        return self.chunks_dir / f"{chunk_id}.raw.txt"
+
     def get_chunk_audio_path(self, chunk_id: str) -> Path:
         """Get path for a chunk's audio file."""
         return self.audio_dir / f"{chunk_id}.wav"
@@ -269,6 +273,15 @@ class WorkManager:
         """Save chunk text to file."""
         path = self.get_chunk_text_path(chunk_id)
         path.write_text(text, encoding="utf-8")
+
+    def save_chunk_raw_text(self, chunk_id: str, raw_text: str) -> None:
+        """Save a chunk's pre-normalisation text, which chapter headings are matched on."""
+        self.get_chunk_raw_text_path(chunk_id).write_text(raw_text, encoding="utf-8")
+
+    def load_chunk_heading_text(self, chunk_id: str) -> str:
+        """Load a chunk's pre-normalisation text, falling back to its spoken text."""
+        path = self.get_chunk_raw_text_path(chunk_id)
+        return path.read_text(encoding="utf-8") if path.exists() else self.load_chunk_text(chunk_id)
 
     def load_chunk_text(self, chunk_id: str) -> str:
         """Load chunk text from file."""

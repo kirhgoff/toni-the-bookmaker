@@ -24,6 +24,7 @@ class Chunk:
     text: str
     pause_ms: int = 0
     speed: float | None = None
+    raw_text: str = ""
 
 
 def chunk_text(
@@ -46,7 +47,7 @@ def chunk_with_marks(
     chunks: list[Chunk] = []
     for segment in parse_pause_tags(text):
         pieces = _chunk_plain(segment.text, max_chars, language, lexicon)
-        chunks.extend(Chunk(piece, speed=segment.speed) for piece in pieces)
+        chunks.extend(Chunk(spoken, speed=segment.speed, raw_text=raw) for raw, spoken in pieces)
         if pieces:
             chunks[-1].pause_ms = segment.pause_ms
         elif chunks:
@@ -59,8 +60,8 @@ def _chunk_plain(
     max_chars: int = 500,
     language: str | None = None,
     lexicon: dict[str, str] | None = None,
-) -> list[str]:
-    """Split text into chunks suitable for TTS processing.
+) -> list[tuple[str, str]]:
+    """Split text into (pre-normalisation text, spoken text) chunks suitable for TTS processing.
 
     Chunks are split at sentence boundaries when possible, respecting
     the maximum character limit. Paragraph breaks are preserved.
@@ -73,32 +74,33 @@ def _chunk_plain(
         lexicon: Pronunciation respellings applied after normalisation.
 
     Returns:
-        List of text chunks.
+        List of (raw text, spoken text) pairs; raw text is what chapter
+        headings are detected on.
     """
     if not text.strip():
         return []
 
-    text = normalize_text(text)
-    if normalization_enabled():
-        text = normalize_speech_text(text, language)
-    text = apply_lexicon(text, lexicon or {})
-    paragraphs = split_into_paragraphs(text)
-
-    chunks = []
-    for paragraph in paragraphs:
-        paragraph = paragraph.strip()
-        if not paragraph:
+    chunks: list[tuple[str, str]] = []
+    for raw in split_into_paragraphs(normalize_text(text)):
+        raw = raw.strip()
+        if not raw:
             continue
-
-        if len(paragraph) <= max_chars:
-            chunks.append(paragraph)
-        else:
-            chunks.extend(
-                end_with_punctuation(piece)
-                for piece in split_paragraph(paragraph, max_chars)
-            )
+        spoken = _speak(raw, language, lexicon)
+        if len(spoken) <= max_chars:
+            chunks.append((raw, spoken))
+            continue
+        pieces = [
+            end_with_punctuation(piece) for piece in split_paragraph(spoken, max_chars)
+        ]
+        chunks.extend((raw if index == 0 else piece, piece) for index, piece in enumerate(pieces))
 
     return merge_unspeakable(chunks, max_chars)
+
+
+def _speak(text: str, language: str | None, lexicon: dict[str, str] | None) -> str:
+    if normalization_enabled():
+        text = normalize_speech_text(text, language)
+    return apply_lexicon(text, lexicon or {})
 
 
 def end_with_punctuation(chunk: str, mark: str = ".") -> str:
@@ -106,21 +108,25 @@ def end_with_punctuation(chunk: str, mark: str = ".") -> str:
     return chunk if TERMINAL_PUNCTUATION.search(chunk) else chunk + mark
 
 
-def merge_unspeakable(chunks: list[str], max_chars: int) -> list[str]:
+def merge_unspeakable(
+    chunks: list[tuple[str, str]], max_chars: int
+) -> list[tuple[str, str]]:
     """Fold chunks with no letters or digits into the previous or next chunk; drop them if neither fits."""
-    merged: list[str] = []
-    carry = ""
-    for chunk in chunks:
-        if not SPEAKABLE.search(chunk):
-            if merged and len(merged[-1]) + len(chunk) + 1 <= max_chars:
-                merged[-1] = f"{merged[-1]} {chunk}"
+    merged: list[tuple[str, str]] = []
+    carry: tuple[str, str] | None = None
+    for raw, spoken in chunks:
+        if not SPEAKABLE.search(spoken):
+            if merged and len(merged[-1][1]) + len(spoken) + 1 <= max_chars:
+                merged[-1] = (f"{merged[-1][0]} {raw}", f"{merged[-1][1]} {spoken}")
+            elif carry:
+                carry = (f"{carry[0]} {raw}", f"{carry[1]} {spoken}")
             else:
-                carry = f"{carry} {chunk}" if carry else chunk
+                carry = (raw, spoken)
             continue
-        if carry and len(carry) + len(chunk) + 1 <= max_chars:
-            chunk = f"{carry} {chunk}"
-        carry = ""
-        merged.append(chunk)
+        if carry and len(carry[1]) + len(spoken) + 1 <= max_chars:
+            raw, spoken = f"{carry[0]} {raw}", f"{carry[1]} {spoken}"
+        carry = None
+        merged.append((raw, spoken))
     return merged
 
 

@@ -42,3 +42,12 @@ def test_build_chapters_offsets_include_extra_pauses(tmp_path):
     chapters, total = build_chapters(paths, texts, pause_ms=400, extra_pauses_ms=[0, 800, 0])
     assert [start for start, _ in chapters] == [0, 2000 + 400 + 800 + 400]
     assert total == 3000 + 400 + 400 + 800
+
+
+def test_build_chapters_match_headings_on_pre_normalisation_text(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 1000) for i in range(2)]
+    spoken = ["Глава двенадцать", "Текст."]
+    raw = ["Глава 12", "Текст."]
+    chapters, _ = build_chapters(paths, spoken, 400, r"^Глава \d+", heading_texts=raw)
+    assert chapters == [(0, "Глава 12")]
+    assert build_chapters(paths, spoken, 400, r"^Глава \d+")[0] == []

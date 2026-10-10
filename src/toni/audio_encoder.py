@@ -101,6 +101,7 @@ def build_chapters(
     pause_ms: int,
     pattern: str = DEFAULT_CHAPTER_PATTERN,
     extra_pauses_ms: list[int] | None = None,
+    heading_texts: list[str] | None = None,
 ) -> tuple[list[tuple[int, str]], int]:
     """Locate chapter starts by timing the chunks whose text is a heading.
 
@@ -114,8 +115,9 @@ def build_chapters(
     chapters: list[tuple[int, str]] = []
     offset = 0
 
+    headings = heading_texts or chunk_texts
     for index, (audio_path, text) in enumerate(zip(audio_paths, chunk_texts)):
-        title = " ".join((text or "").split())
+        title = " ".join((headings[index] or "").split())
         if title and heading.match(title):
             if not chapters or chapters[-1][1] != title[:120]:
                 chapters.append((offset, title[:120]))
@@ -158,6 +160,7 @@ def concatenate_with_ffmpeg(
     chunk_texts: list[str] | None = None,
     chapter_pattern: str = DEFAULT_CHAPTER_PATTERN,
     extra_pauses_ms: list[int] | None = None,
+    heading_texts: list[str] | None = None,
 ) -> int:
     """Concatenate WAV files using ffmpeg concat demuxer and encode to MP3.
 
@@ -175,6 +178,8 @@ def concatenate_with_ffmpeg(
             headings. Chapters are only embedded for .m4b/.m4a outputs.
         chapter_pattern: Regex matched against the start of each chunk's text.
         extra_pauses_ms: Additional silence after each chunk (from [pause] tags).
+        heading_texts: Pre-normalisation chunk texts to match chapter headings
+            against; defaults to chunk_texts.
 
     Returns:
         Number of chapters embedded.
@@ -212,7 +217,8 @@ def concatenate_with_ffmpeg(
     chapters: list[tuple[int, str]] = []
     if wants_chapters and chunk_texts:
         chapters, total_ms = build_chapters(
-            audio_paths, chunk_texts, pause_ms, chapter_pattern, extra_pauses_ms
+            audio_paths, chunk_texts, pause_ms, chapter_pattern, extra_pauses_ms,
+            heading_texts,
         )
 
     cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list_path)]

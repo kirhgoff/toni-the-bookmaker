@@ -252,7 +252,9 @@ prefer the script unless you have a specific reason not to.
 - **No chapters appear in the output.** The chapter detector looks for lines
   starting with words like `CHAPTER` or `PART`. Check what your book actually
   uses (`grep -cE "^(PART|BOOK|CHAPTER|Chapter)\b" source.txt`) and pass your
-  own pattern with `-c` if it comes back zero.
+  own pattern with `-c` if it comes back zero. Headings are matched on the
+  text as written in the source, before numbers are spoken out or the lexicon
+  is applied, so `-c '^Глава \d+'` works as expected.
 - **The time estimate looks wrong early on.** Per-chunk timing drifts as the
   run settles in; ignore the ETA for the first several minutes.
 - **Don't raise `-w` (workers) much above 2.** Each worker loads its own copy

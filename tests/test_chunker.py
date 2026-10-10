@@ -65,3 +65,13 @@ def test_sentence_boundary_pieces_keep_the_full_stop():
 
 def test_unspeakable_chunk_merges_into_the_next_when_the_previous_is_full():
     assert chunk_text("Hello there.\n\n—\n\nNext one.", max_chars=13) == ["Hello there.", "— Next one."]
+
+
+def test_chunks_keep_their_pre_normalisation_text_for_chapter_detection():
+    from toni.chunker import chunk_with_marks
+
+    chunks = chunk_with_marks("Глава 12\n\nАня взяла 3 яблока.", language="ru", lexicon={"аня": "Ан+я"})
+    assert [(c.raw_text, c.text) for c in chunks] == [
+        ("Глава 12", "Глава двенадцать"),
+        ("Аня взяла 3 яблока.", "Ан+я взяла три яблока."),
+    ]

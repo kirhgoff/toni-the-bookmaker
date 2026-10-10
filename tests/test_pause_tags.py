@@ -100,3 +100,13 @@ def test_slow_tag_variants_parse():
 def test_pause_after_an_unspeakable_segment_is_not_lost():
     result = marks("Hello [pause] — [pause 2s] world.")
     assert result == [("Hello", 2350, None), ("world.", 0, None)]
+
+
+def test_raw_chunk_text_round_trips_and_falls_back_to_spoken_text(tmp_path: Path):
+    work = WorkManager(tmp_path / "book.mp3", work_base=tmp_path / "work")
+    work.setup()
+    work.save_chunk_text("0", "Chapter twelve")
+    work.save_chunk_raw_text("0", "Chapter 12")
+    work.save_chunk_text("1", "Plain.")
+    assert work.load_chunk_heading_text("0") == "Chapter 12"
+    assert work.load_chunk_heading_text("1") == "Plain."

@@ -370,6 +370,8 @@ def main(
 
         for i, chunk in enumerate(chunks):
             work.save_chunk_text(str(i), chunk.text)
+            if chunk.raw_text != chunk.text:
+                work.save_chunk_raw_text(str(i), chunk.raw_text)
 
         click.echo(f"Saved {total_chunks} text chunks to {work.chunks_dir}")
 
@@ -422,6 +424,7 @@ def main(
     click.echo(f"Concatenating {len(audio_chunk_ids)} audio chunks with ffmpeg...")
     audio_paths = [work.get_chunk_audio_path(cid) for cid in audio_chunk_ids]
     chunk_texts = [work.load_chunk_text(cid) for cid in audio_chunk_ids]
+    heading_texts = [work.load_chunk_heading_text(cid) for cid in audio_chunk_ids]
 
     work_output = work.work_dir / f"output{output_file.suffix or '.mp3'}"
     chapter_count = concatenate_with_ffmpeg(
@@ -432,6 +435,7 @@ def main(
         bitrate=bitrate,
         work_dir=work.work_dir,
         chunk_texts=chunk_texts,
+        heading_texts=heading_texts,
         chapter_pattern=chapter_pattern,
         extra_pauses_ms=work.get_extra_pauses(audio_chunk_ids),
     )
