@@ -89,6 +89,7 @@ BLOCK_TAGS = {
     "p", "div", "br", "li", "tr", "blockquote", "section", "article",
     "h1", "h2", "h3", "h4", "h5", "h6",
 }
+ANY_HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 HEADING_TAGS = {"h1", "h2", "h3"}
 SKIPPED_TAGS = {"script", "style", "head"}
 CONTAINER_PATH = "META-INF/container.xml"
@@ -114,7 +115,7 @@ class _TextBlocks(HTMLParser):
 
     def _flush(self) -> None:
         text = " ".join("".join(self._parts).split())
-        if text and self._has_unlinked_text:
+        if text and (self._has_unlinked_text or self._block_tag in ANY_HEADING_TAGS):
             self.blocks.append((self._block_tag, text))
         self._parts = []
         self._block_tag = "p"

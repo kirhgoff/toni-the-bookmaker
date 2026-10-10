@@ -431,3 +431,10 @@ def test_epub_toc_title_survives_an_empty_image_heading_and_subheading(tmp_path)
     text, titles = extract_epub(multi_file_epub(tmp_path, chapters, ["Chapter One", "Chapter Two"]))
     assert titles == ["Chapter One", "Notes", "Chapter Two"]
     assert text.startswith("Chapter One\n\n")
+
+
+def test_epub_heading_linking_back_to_the_contents_is_kept(tmp_path):
+    chapters = [f'<h2><a href="toc.xhtml">Chapter 1</a></h2><p>{BODY}</p>']
+    text, titles = extract_epub(multi_file_epub(tmp_path, chapters, ["Opening"]))
+    assert "Chapter 1" in text
+    assert titles == ["Chapter 1"]
