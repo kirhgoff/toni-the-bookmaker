@@ -212,8 +212,10 @@ Set `TONI_OMNI_COMPILE=1` to compile `omni`'s language model with
 `torch.compile`. It only applies on CUDA with Triton installed (ignored on
 Apple Silicon and CPU), costs a one-off warm-up at the start of the render,
 and if compilation or the first compiled run fails, Toni logs a line and
-carries on in eager mode. Exported in your shell, it is forwarded to
-remote renders too.
+carries on in eager mode. The Docker image ships `gcc`, which Triton needs to
+compile its kernels, and sets `TONI_OMNI_COMPILE=0` so the flag is easy to
+find; export `TONI_OMNI_COMPILE=1` in your shell and it is forwarded to
+remote renders.
 
 ## Edits and resume
 
