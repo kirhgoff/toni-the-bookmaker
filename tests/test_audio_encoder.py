@@ -239,14 +239,13 @@ def test_cli_rejects_a_cover_that_is_not_jpg_png_or_too_large(tmp_path):
 
     from toni.cli import main
 
-    book = tmp_path / "book.txt"
-    book.write_text("Hello.")
+    missing_input = tmp_path / "missing.txt"
     gif = tmp_path / "art.gif"
     gif.write_bytes(b"x")
     big = tmp_path / "big.png"
     big.write_bytes(b"x" * (8 * 1024 * 1024 + 1))
     runner = CliRunner()
     for cover, message in ((gif, ".jpg or .png"), (big, "8 MB")):
-        result = runner.invoke(main, ["-i", str(book), "--cover", str(cover)])
+        result = runner.invoke(main, ["--cover", str(cover), "-i", str(missing_input)])
         assert result.exit_code == 2
         assert message in result.output

@@ -311,9 +311,9 @@ def test_not_a_zip_is_rejected(tmp_path):
 PNG_BYTES = b"\x89PNG\r\n\x1a\nfake"
 
 
-def with_cover(tmp_path, opf_item: str, opf_meta: str = ""):
+def with_cover(tmp_path, opf_item: str, opf_meta: str = "", data: bytes = PNG_BYTES, name: str = "art.png"):
     opf = OPF.replace("<manifest>", f"<metadata>{opf_meta}</metadata><manifest>{opf_item}")
-    return build_epub(tmp_path / "book.epub", {"OEBPS/content.opf": opf.encode(), "OEBPS/images/art.png": PNG_BYTES})
+    return build_epub(tmp_path / "book.epub", {"OEBPS/content.opf": opf.encode(), f"OEBPS/images/{name}": data})
 
 
 def test_epub3_cover_image_is_extracted(tmp_path):
@@ -328,6 +328,23 @@ def test_epub2_meta_cover_is_extracted(tmp_path):
         '<meta name="cover" content="img"/>',
     )
     assert epub_cover(epub) == (".png", PNG_BYTES)
+
+
+def test_epub_cover_with_non_image_bytes_is_ignored(tmp_path):
+    item = '<item id="img" href="images/art.jpg" properties="cover-image" media-type="image/jpeg"/>'
+    epub = with_cover(tmp_path, item, data=b"RIFF\x00\x00\x00\x00WEBPVP8 ", name="art.jpg")
+    assert epub_cover(epub) is None
+
+
+def test_epub_cover_extension_follows_the_bytes(tmp_path):
+    item = '<item id="img" href="images/art.jpg" properties="cover-image" media-type="image/jpeg"/>'
+    assert epub_cover(with_cover(tmp_path, item, name="art.jpg")) == (".png", PNG_BYTES)
+
+
+def test_epub_cover_over_8_mb_is_ignored(tmp_path, monkeypatch):
+    monkeypatch.setattr(text_extractor, "MAX_COVER_BYTES", 4)
+    item = '<item id="img" href="images/art.png" properties="cover-image" media-type="image/png"/>'
+    assert epub_cover(with_cover(tmp_path, item)) is None
 
 
 def test_epub_without_a_cover_declaration_has_no_cover(tmp_path):

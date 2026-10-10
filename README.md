@@ -121,7 +121,7 @@ stress-marked.
 | `-b, --bitrate` | 64k | Audio bitrate |
 | `-p, --pause` | 500 | Pause between sentences and chunks, in milliseconds; paragraph ends get twice that (`--paragraph-pause MS` on the lower-level CLI sets it; `0` disables it) |
 | `-f, --format` | m4b | `m4b` (with chapters) or `mp3` (no chapters) |
-| `--cover` | `cover.jpg`/`cover.png` in the book folder | Cover art (.jpg/.png, max 8 MB, checked with ffprobe before rendering; the lower-level CLI checks type and size too) embedded in the `m4b`. For an EPUB with no cover in the book folder yet, the book's own cover image is extracted there |
+| `--cover` | `cover.jpg`/`cover.png` in the book folder | Cover art (.jpg/.png, max 8 MB, checked with ffprobe before rendering; the lower-level CLI checks type and size too) embedded in the `m4b`; an invalid or oversized `cover.jpg`/`cover.png` found in the folder is skipped with a warning (an explicit `--cover` still fails). For an EPUB with no cover in the book folder yet, the book's own cover is extracted there, only when it is a JPEG or PNG of at most 8 MB |
 | `--loudness` | default | Loudness target: `default` (-18 LUFS; a true peak above -2 dBTP only warns) or `acx` (-19 LUFS ±1, true peak at most -3 dBTP for Audible/ACX; when the encoder overshoots, the limiter is lowered and the file re-encoded, up to three times, and the run fails - keeping the file - if it still misses) |
 | `-c, --chapters` | see below | Chapter heading pattern (ignored for EPUBs, whose titles come from the book itself) |
 | `-l, --language` | en | Language code |

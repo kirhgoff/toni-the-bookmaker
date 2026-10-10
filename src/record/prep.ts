@@ -139,7 +139,12 @@ export async function prepareCover(explicit: string | undefined, bookDir: string
     for (const extension of COVER_EXTENSIONS) {
       const found = `${bookDir}/cover${extension}`;
       if (!(await Bun.file(found).exists())) continue;
-      await assertValidCover(found);
+      try {
+        await assertValidCover(found);
+      } catch (error) {
+        log(`  ignoring ${found}: ${(error as Error).message}; pass --cover to use another image`);
+        continue;
+      }
       return `cover${extension}`;
     }
     return undefined;

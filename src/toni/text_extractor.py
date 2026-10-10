@@ -93,6 +93,8 @@ HEADING_TAGS = {"h1", "h2", "h3"}
 SKIPPED_TAGS = {"script", "style", "head"}
 CONTAINER_PATH = "META-INF/container.xml"
 COVER_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+MAX_COVER_BYTES = 8 * 1024 * 1024
+IMAGE_MAGIC = {b"\xff\xd8\xff": ".jpg", b"\x89PNG\r\n\x1a\n": ".png"}
 
 
 class _TextBlocks(HTMLParser):
@@ -289,9 +291,12 @@ def epub_cover(file_path: Path) -> tuple[str, bytes] | None:
         if not declared and legacy in items:
             declared = [items[legacy]]
         for item in declared:
-            extension = posixpath.splitext(item["path"])[1].lower()
-            if extension in COVER_EXTENSIONS and item["path"] in archive.namelist():
-                return (".jpg" if extension == ".jpeg" else extension), _read_entry(archive, item["path"])
+            if item["path"] not in archive.namelist():
+                continue
+            data = _read_entry(archive, item["path"])
+            extension = next((ext for magic, ext in IMAGE_MAGIC.items() if data.startswith(magic)), None)
+            if extension and len(data) <= MAX_COVER_BYTES:
+                return extension, data
     return None
 
 

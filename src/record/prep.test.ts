@@ -42,12 +42,14 @@ test("rejects unsupported, oversized and mislabelled covers", async () => {
   await expect(prepareCover(join(dir, "gif.png"), dir)).rejects.toThrow("valid JPEG or PNG");
 });
 
-test("an auto-detected cover gets the same checks as an explicit one", async () => {
+test("an invalid auto-detected cover is skipped, a valid one beside it is used", async () => {
   const dir = await bookDir();
   await writeFile(join(dir, "cover.jpg"), "not an image");
-  await expect(prepareCover(undefined, dir)).rejects.toThrow("valid JPEG or PNG");
+  expect(await prepareCover(undefined, dir)).toBeUndefined();
   await writeFile(join(dir, "cover.jpg"), Buffer.alloc(8 * 1024 * 1024 + 1));
-  await expect(prepareCover(undefined, dir)).rejects.toThrow("8 MB");
+  expect(await prepareCover(undefined, dir)).toBeUndefined();
+  await writeFile(join(dir, "cover.png"), PNG);
+  expect(await prepareCover(undefined, dir)).toBe("cover.png");
 });
 
 test("an artifact is redone when its source fingerprint changes or the artifact is missing", () => {
