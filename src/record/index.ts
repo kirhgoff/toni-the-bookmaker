@@ -24,6 +24,7 @@ const USAGE = `Record an audiobook from a text or PDF file.
   -c, --chapters REGEX  Chapter heading pattern
   -l, --language LANG   Language code (default: en)
   -m, --model MODEL     TTS engine: omni (default), pocket, kani, espeech, qwen
+  --no-qc               Skip the ASR check that regenerates garbled or skipped chunks
   --batch N             Chunks per model call for omni (default: auto)
   --seed N              Base seed; same seed and text give the same audio (default: 0)
   -H, --host HOST       Render on a remote GPU host instead of locally
@@ -94,6 +95,7 @@ async function main(): Promise<void> {
       model: { type: "string", short: "m", default: "omni" },
       seed: { type: "string" },
       batch: { type: "string" },
+      "no-qc": { type: "boolean", default: false },
       host: { type: "string", short: "H" },
       detach: { type: "boolean", short: "d", default: false },
       help: { type: "boolean", short: "h", default: false },
@@ -173,6 +175,7 @@ async function main(): Promise<void> {
     model: values.model!,
     ...(values.seed ? { seed: values.seed } : {}),
     ...(values.batch ? { batch: values.batch } : {}),
+    qc: !values["no-qc"],
     ...(values.chapters ? { chapterPattern: values.chapters } : {}),
     ...(voice ? { voiceRef } : {}),
     ...((await Bun.file(lexicon).exists()) ? { lexicon } : {}),

@@ -16,6 +16,7 @@ export interface RenderOptions {
   model: string;
   seed?: string;
   batch?: string;
+  qc: boolean;
   chapterPattern?: string;
   voiceRef?: string;
   lexicon?: string;
@@ -36,6 +37,7 @@ export function cliArgs(o: RenderOptions, inDir: string, outDir: string): string
   if (o.lexicon) args.push("--lexicon", `${inDir}/lexicon.txt`);
   if (o.seed) args.push("--seed", o.seed);
   if (o.batch) args.push("--batch", o.batch);
+  if (!o.qc) args.push("--no-qc");
   if (o.chapterPattern) args.push("--chapter-pattern", o.chapterPattern);
   return args;
 }
@@ -45,6 +47,9 @@ export function dockerEnvFlags(o: RenderOptions, env = process.env): string[] {
     "-e", `TONI_LANGUAGE=${shellQuote(o.language)}`,
     ...(o.refText ? ["-e", `TONI_REF_TEXT=${shellQuote(o.refText)}`] : []),
     ...(env.TONI_NORMALIZE ? ["-e", `TONI_NORMALIZE=${shellQuote(env.TONI_NORMALIZE)}`] : []),
+    ...Object.entries(env)
+      .filter(([k, v]) => k.startsWith("TONI_QC_") && v !== undefined)
+      .flatMap(([k, v]) => ["-e", `${k}=${shellQuote(v!)}`]),
   ];
 }
 

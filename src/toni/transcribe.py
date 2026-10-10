@@ -7,26 +7,39 @@ clones a voice without a supplied transcript.
 
 import sys
 from pathlib import Path
+from typing import Callable
 
 import click
+import numpy as np
 import soundfile as sf
 
 
-def transcribe_reference(audio_path: Path, device: str = "cpu") -> str:
-    """Return the transcript of a reference clip."""
+def load_transcriber(device: str | None = None) -> Callable[[np.ndarray, int], str]:
     import torch
     from omnivoice import OmniVoice
 
+    if device is None:
+        device = (
+            "mps" if torch.backends.mps.is_available()
+            else "cuda" if torch.cuda.is_available()
+            else "cpu"
+        )
     model = OmniVoice.from_pretrained(
         "k2-fsa/OmniVoice",
         device_map=device,
         dtype=torch.float32 if device == "cpu" else torch.float16,
     )
     model.load_asr_model()
+    return lambda waveform, sample_rate: model.transcribe((waveform, sample_rate)).strip()
+
+
+def transcribe_reference(audio_path: Path, device: str = "cpu") -> str:
+    """Return the transcript of a reference clip."""
+    transcriber = load_transcriber(device)
     waveform, sample_rate = sf.read(audio_path, dtype="float32")
     if waveform.ndim > 1:
         waveform = waveform.mean(axis=1)
-    return model.transcribe((waveform, sample_rate)).strip()
+    return transcriber(waveform, sample_rate)
 
 
 @click.command()

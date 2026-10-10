@@ -306,6 +306,7 @@ class WorkManager:
         error: str | None = None,
         sub_chunks: list[str] | None = None,
         seed: int | None = None,
+        qc: dict | None = None,
     ) -> None:
         """Update chunk status."""
         with self._locked_manifest() as manifest:
@@ -325,6 +326,11 @@ class WorkManager:
 
             if seed is not None:
                 chunk_data["seed"] = seed
+
+            if status == "completed":
+                chunk_data.pop("qc", None)
+            if qc is not None:
+                chunk_data["qc"] = qc
 
             if status == "failed":
                 chunk_data["retries"] = chunk_data.get("retries", 0) + 1
@@ -363,6 +369,15 @@ class WorkManager:
             chunk_id
             for chunk_id, data in manifest.chunks.items()
             if data.get("status") == "completed"
+        ]
+
+    def get_unchecked_chunks(self) -> list[str]:
+        """Completed chunks that have not been through QC."""
+        manifest = self.load_manifest()
+        return [
+            chunk_id
+            for chunk_id, data in manifest.chunks.items()
+            if data.get("status") == "completed" and "qc" not in data
         ]
 
     def get_failed_chunks(self) -> list[str]:

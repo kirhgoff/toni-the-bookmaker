@@ -2,8 +2,10 @@
 
 import os
 import shutil
+import wave
 from multiprocessing import get_context
 from pathlib import Path
+from typing import Callable
 
 import click
 import numpy as np
@@ -13,10 +15,13 @@ from toni import __version__
 from toni.audio_encoder import (
     DEFAULT_CHAPTER_PATTERN,
     concatenate_with_ffmpeg,
+    load_chunk_wav,
     save_chunk_wav,
+    wav_duration_ms,
 )
 from toni.chunker import chunk_with_marks, split_chunk
 from toni.lexicon import load_lexicon
+from toni.qc import Thresholds, expected_seconds, verdict, word_error_rate
 from toni.seed import chunk_seed, seed_everything
 from toni.text_extractor import extract_text
 from toni.tts import get_engine, list_engines
@@ -231,6 +236,52 @@ def _batches(work: "WorkManager", pending: list[str], width: int) -> list[list[s
     return batches
 
 
+def qc_pass(
+    work: "WorkManager",
+    transcriber: Callable[[np.ndarray, int], str],
+    thresholds: Thresholds,
+    qc_retries: int,
+    max_retries: int,
+    expected: Callable[[str, float | None], float],
+    sample_rate: int,
+) -> tuple[int, int, int]:
+    checked = flipped = gave_up = 0
+    for cid in work.get_unchecked_chunks():
+        text = work.load_chunk_text(cid)
+        audio = load_chunk_wav(work.get_chunk_audio_path(cid))
+        seconds = expected(text, work.get_chunk_speed(cid))
+        wer = word_error_rate(text, transcriber(audio, sample_rate))
+        ratio = len(audio) / sample_rate / seconds if seconds else 1.0
+        result = verdict(wer, ratio, seconds, thresholds)
+        retries = work.get_retries(cid)
+        qc = {"wer": round(wer, 3), "ratio": round(ratio, 2), "attempts": retries, "verdict": result}
+        checked += 1
+        retry = result == "fail" and retries < qc_retries
+        work.set_chunk_status(cid, "pending" if retry else "completed", qc=qc)
+        if result == "pass":
+            continue
+        click.echo(f"QC fail {cid}: wer={wer:.2f} ratio={ratio:.2f} attempt={retries}")
+        if retry:
+            work.increment_retries(cid)
+            flipped += 1
+        elif cid.count("_") < max_retries and len(subs := split_chunk(text)) > 1:
+            for i, sub in enumerate(subs):
+                work.add_sub_chunk(cid, f"{cid}_{i}", sub)
+            flipped += 1
+        else:
+            gave_up += 1
+    return checked, flipped, gave_up
+
+
+def _reference_seconds(voice_file: Path | None) -> float | None:
+    if voice_file is None:
+        return None
+    try:
+        return wav_duration_ms(voice_file) / 1000
+    except (wave.Error, EOFError):
+        return None
+
+
 def _chunk_marks(chunk) -> dict:
     marks = {}
     if chunk.pause_ms:
@@ -332,6 +383,40 @@ def _chunk_marks(chunk) -> dict:
     "Batching runs in one process.",
 )
 @click.option(
+    "--qc/--no-qc",
+    default=True,
+    envvar="TONI_QC",
+    help="Transcribe each chunk back and regenerate ones that skip or garble text.",
+)
+@click.option(
+    "--qc-wer",
+    type=float,
+    default=0.25,
+    envvar="TONI_QC_WER",
+    help="Fail a chunk when its word error rate exceeds this.",
+)
+@click.option(
+    "--qc-ratio-min",
+    type=float,
+    default=0.6,
+    envvar="TONI_QC_RATIO_MIN",
+    help="Fail a chunk shorter than this fraction of its expected duration.",
+)
+@click.option(
+    "--qc-ratio-max",
+    type=float,
+    default=1.6,
+    envvar="TONI_QC_RATIO_MAX",
+    help="Fail a chunk longer than this multiple of its expected duration.",
+)
+@click.option(
+    "--qc-retries",
+    type=int,
+    default=2,
+    envvar="TONI_QC_RETRIES",
+    help="Regenerations per failing chunk before it is split.",
+)
+@click.option(
     "--verbose",
     is_flag=True,
     help="Show detailed progress.",
@@ -351,6 +436,11 @@ def main(
     workers: int | None,
     seed: int,
     batch: int,
+    qc: bool,
+    qc_wer: float,
+    qc_ratio_min: float,
+    qc_ratio_max: float,
+    qc_retries: int,
     verbose: bool,
 ) -> None:
     """Generate audiobook from PDF or text file.
@@ -456,9 +546,41 @@ def main(
     if width > 1 and workers > 1:
         click.echo("Engine batches in one process; --workers ignored")
 
-    render_pending(
-        work, manifest.model, voice_file_for_tts, max_retries, workers, width, verbose
-    )
+    thresholds = Thresholds(qc_wer, qc_ratio_min, qc_ratio_max)
+    ref_text = os.environ.get("TONI_REF_TEXT")
+    ref_seconds = _reference_seconds(voice_file_for_tts) if ref_text else None
+    base_speed = float(os.environ.get("TONI_OMNI_SPEED") or 1.0)
+
+    def expected(text: str, chunk_speed: float | None) -> float:
+        return expected_seconds(text, ref_text, ref_seconds, base_speed * (chunk_speed or 1.0))
+
+    totals = [0, 0, 0]
+    while True:
+        render_pending(
+            work, manifest.model, voice_file_for_tts, max_retries, workers, width, verbose
+        )
+        if not qc or not work.get_unchecked_chunks():
+            break
+        try:
+            from toni.transcribe import load_transcriber
+
+            transcriber = load_transcriber(os.environ.get("TONI_OMNI_DEVICE"))
+        except ImportError:
+            click.echo("QC skipped: omnivoice is not installed")
+            break
+        click.echo("Checking chunks with ASR...")
+        counts = qc_pass(
+            work, transcriber, thresholds, qc_retries, max_retries, expected, manifest.sample_rate
+        )
+        del transcriber
+        totals = [a + b for a, b in zip(totals, counts)]
+        if not counts[1]:
+            break
+    if qc:
+        click.echo(
+            f"QC: {totals[0]} checked, {totals[1]} regenerated, "
+            f"{totals[2]} still failing after retries"
+        )
 
     progress = work.get_progress_summary()
     click.echo(
@@ -501,8 +623,6 @@ def main(
     if output_file.resolve() != work_output.resolve():
         click.echo(f"Copying output to {output_file}...")
         shutil.copy2(work_output, output_file)
-
-    import wave
 
     total_duration_seconds = 0
     for audio_path in audio_paths:

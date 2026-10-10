@@ -170,12 +170,28 @@ stress-marked.
 | `-m, --model` | omni | TTS engine: `omni`, `pocket`, `kani`, `espeech`, or `qwen` |
 | `--seed` | 0 | Base seed; the same seed and text always give the same audio, so a regenerated chunk keeps its delivery |
 | `--batch` / `TONI_BATCH` | auto | `omni` only: chunks per model call (max 16). Batching runs in one process, so `-w` is ignored, and each batch shares one seed (the first chunk's), so a batch is reproducible as a whole |
+| `--no-qc` | QC on | Skip the quality check (see [Quality check](#quality-check)) |
 | `-H, --host` | none | Render on a remote GPU host instead of locally |
 | `-d, --detach` | off | Run in the background |
 | `-h, --help` | | Show this help |
 
 Books land in `~/Downloads/audiobooks/<name>/` by default; change the folder
 with `-o` or the `AUDIOBOOK_LIBRARY` environment variable.
+
+## Quality check
+
+After rendering, Toni transcribes every chunk back with Whisper and compares it
+with the text (word error rate) and its duration with what the text should
+take. A chunk that skips words, babbles or is cut short is regenerated with a
+fresh but reproducible seed, up to twice, and then split like any failed chunk.
+The run ends with a `QC:` summary; per-chunk results are in `manifest.json`.
+Whisper runs once in the main process after rendering, never in render workers.
+
+Tune it with environment variables (or the matching `toni.cli` flags):
+`TONI_QC=0` (off), `TONI_QC_WER` (default 0.25), `TONI_QC_RATIO_MIN` (0.6),
+`TONI_QC_RATIO_MAX` (1.6), `TONI_QC_RETRIES` (2). For languages where Whisper
+is weak, raise `TONI_QC_WER`. Chunks under about 4 seconds skip the duration
+check because OmniVoice stretches very short text.
 
 ## Remote GPU rendering
 

@@ -7,6 +7,7 @@ import pytest
 from click.testing import CliRunner
 
 from toni.cli import main
+from toni.qc import expected_seconds
 from toni.tts.base import TTSEngine
 from toni.work_manager import WorkManager
 
@@ -17,7 +18,7 @@ TEXT = "First little line here.\n\nSecond little line here.\n\nThird line.\n\nFo
 
 
 def seconds_for(text: str) -> float:
-    return len(text) / 20
+    return expected_seconds(text)
 
 
 class FakeEngine(TTSEngine):
@@ -26,6 +27,8 @@ class FakeEngine(TTSEngine):
         self.batches: list[list[str]] = []
         self.width = 1
         self.fail_texts: set[str] = set()
+        self.bad_takes: dict[str, int] = {}
+        self.transcribed = 0
 
     name = property(lambda self: "fake")
     sample_rate = property(lambda self: SR)
@@ -55,11 +58,20 @@ class FakeEngine(TTSEngine):
         return [self._take(t) for t in texts]
 
 
+    def transcribe(self, audio: np.ndarray, sample_rate: int) -> str:
+        self.transcribed += 1
+        n = len(audio) % 1000
+        text = self.takes[n][0]
+        earlier = sum(1 for t, _ in self.takes[:n] if t == text)
+        return "" if earlier < self.bad_takes.get(text, 0) else text
+
+
 @pytest.fixture
 def fake(monkeypatch) -> FakeEngine:
     engine = FakeEngine()
     for target in ("toni.cli.get_engine", "toni.tts.get_engine", "toni.tts.registry.get_engine"):
         monkeypatch.setattr(target, lambda name: engine)
+    monkeypatch.setattr("toni.transcribe.load_transcriber", lambda device=None: engine.transcribe)
     return engine
 
 
