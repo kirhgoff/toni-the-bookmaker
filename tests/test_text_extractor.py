@@ -364,3 +364,70 @@ def test_cli_saves_the_epub_cover_only_when_the_book_folder_has_none(tmp_path):
     (book / "cover.png").write_bytes(b"mine")
     run_extractor(epub, book / "source.txt", "--cover-dir", str(book))
     assert (book / "cover.png").read_bytes() == b"mine"
+
+
+def with_nav_title(old: str, new: str) -> bytes:
+    return NAV.replace(f">{old}<", f">{new}<").encode()
+
+
+def test_epub_contents_page_of_links_is_not_narrated(tmp_path):
+    opf = OPF.replace("</manifest>", '<item id="toc" href="toc.xhtml" media-type="application/xhtml+xml"/></manifest>')
+    opf = opf.replace('<itemref idref="c1"/>', '<itemref idref="toc"/><itemref idref="c1"/>')
+    contents = (
+        '<p><a href="ch1.xhtml">Chapter One</a></p><p><a href="ch2.xhtml">Chapter Two</a></p>'
+        '<p>See <a href="https://example.com">the site</a></p><p><a href="#top">Back to top</a></p>'
+    )
+    files = {
+        "OEBPS/content.opf": opf.encode(),
+        "OEBPS/toc.xhtml": page(contents).encode(),
+        "OEBPS/nav.xhtml": with_nav_title("The Beginning", "Chapter One"),
+    }
+    text, titles = extract_epub(build_epub(tmp_path / "book.epub", files))
+    assert titles == ["Chapter One", "Chapter Two"]
+    assert text.count("Chapter One") == 1
+    assert text.count("Chapter Two") == 1
+    assert "Back to top" not in text
+    assert "See the site" in text
+
+
+def multi_file_epub(tmp_path: Path, chapters: list[str], titles: list[str]) -> Path:
+    items = "".join(f'<item id="c{i}" href="c{i}.xhtml" media-type="application/xhtml+xml"/>' for i in range(len(chapters)))
+    spine = "".join(f'<itemref idref="c{i}"/>' for i in range(len(chapters)))
+    opf = (
+        '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0"><manifest>'
+        f'<item id="nav" href="nav.xhtml" properties="nav" media-type="application/xhtml+xml"/>{items}'
+        f"</manifest><spine>{spine}</spine></package>"
+    )
+    links = "".join(f'<li><a href="c{i}.xhtml">{title}</a></li>' for i, title in enumerate(titles))
+    nav = (
+        '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body>'
+        f'<nav epub:type="toc"><ol>{links}</ol></nav></body></html>'
+    )
+    path = tmp_path / "multi.epub"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("META-INF/container.xml", CONTAINER)
+        archive.writestr("OEBPS/content.opf", opf)
+        archive.writestr("OEBPS/nav.xhtml", nav)
+        for i, body in enumerate(chapters):
+            archive.writestr(f"OEBPS/c{i}.xhtml", page(body))
+    return path
+
+
+def test_epub_toc_title_survives_a_subheading_in_the_file(tmp_path):
+    chapters = [
+        f'<p class="ct">Chapter One</p><p>{BODY}</p><h3>A Note on Sources</h3><p>{BODY}</p>',
+        f'<p class="ct">Chapter Two</p><p>{BODY}</p>',
+    ]
+    text, titles = extract_epub(multi_file_epub(tmp_path, chapters, ["Chapter One", "Chapter Two"]))
+    assert titles == ["Chapter One", "A Note on Sources", "Chapter Two"]
+    assert text.count("Chapter One") == 1
+
+
+def test_epub_toc_title_survives_an_empty_image_heading_and_subheading(tmp_path):
+    chapters = [
+        f'<h1><img alt="" src="x.png"/></h1><p>{BODY}</p><h2>Notes</h2><p>{BODY}</p>',
+        f'<h1><img alt="" src="x.png"/></h1><p>{BODY}</p>',
+    ]
+    text, titles = extract_epub(multi_file_epub(tmp_path, chapters, ["Chapter One", "Chapter Two"]))
+    assert titles == ["Chapter One", "Notes", "Chapter Two"]
+    assert text.startswith("Chapter One\n\n")

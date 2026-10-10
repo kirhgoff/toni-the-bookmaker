@@ -97,6 +97,10 @@ MAX_COVER_BYTES = 8 * 1024 * 1024
 IMAGE_MAGIC = {b"\xff\xd8\xff": ".jpg", b"\x89PNG\r\n\x1a\n": ".png"}
 
 
+def _is_internal_link(href: str | None) -> bool:
+    return bool(href) and not re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", href)
+
+
 class _TextBlocks(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -105,19 +109,24 @@ class _TextBlocks(HTMLParser):
         self._parts: list[str] = []
         self._block_tag = "p"
         self._skip_depth = 0
+        self._link_depth = 0
+        self._has_unlinked_text = False
 
     def _flush(self) -> None:
         text = " ".join("".join(self._parts).split())
-        if text:
+        if text and self._has_unlinked_text:
             self.blocks.append((self._block_tag, text))
         self._parts = []
         self._block_tag = "p"
+        self._has_unlinked_text = False
 
     def handle_starttag(self, tag, attrs):
         if tag in SKIPPED_TAGS:
             self._skip_depth += 1
         if tag in ("body", "section"):
             self.epub_types.update((dict(attrs).get("epub:type") or "").split())
+        if tag == "a" and _is_internal_link(dict(attrs).get("href")):
+            self._link_depth += 1
         if tag in BLOCK_TAGS:
             self._flush()
             self._block_tag = tag
@@ -125,12 +134,16 @@ class _TextBlocks(HTMLParser):
     def handle_endtag(self, tag):
         if tag in SKIPPED_TAGS:
             self._skip_depth = max(self._skip_depth - 1, 0)
+        if tag == "a":
+            self._link_depth = max(self._link_depth - 1, 0)
         if tag in BLOCK_TAGS:
             self._flush()
 
     def handle_data(self, data):
         if not self._skip_depth:
             self._parts.append(data)
+            if data.strip() and not self._link_depth:
+                self._has_unlinked_text = True
 
     def close(self):
         super().close()
@@ -333,12 +346,12 @@ def extract_epub(file_path: Path) -> tuple[str, list[str]]:
             if not blocks:
                 continue
             lines = [text for _, text in blocks]
-            headings = [text for tag, text in blocks if tag in HEADING_TAGS]
-            if headings:
-                section_titles.extend(headings)
-            elif titles.get(path):
-                section_titles.append(titles[path])
-                lines.insert(0, titles[path])
+            title = titles.get(path)
+            if blocks[0][0] not in HEADING_TAGS and title and title not in section_titles:
+                section_titles.append(title)
+                if lines[0] != title:
+                    lines.insert(0, title)
+            section_titles.extend(text for tag, text in blocks if tag in HEADING_TAGS)
             sections.append("\n\n".join(lines))
 
     return "\n\n".join(sections), section_titles
