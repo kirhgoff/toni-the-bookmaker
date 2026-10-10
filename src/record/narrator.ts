@@ -1,17 +1,34 @@
+import { createHash } from "node:crypto";
+
 const DESIGN_LANGUAGES = ["en", "ru"];
 
-export type NarratorPlan = "design" | "reuse" | "none";
+export type NarratorPlan = "design" | "clone" | "reuse" | "none";
 
 export interface NarratorInput {
-  voice?: string;
+  voiceSha1?: string;
   model: string;
   language: string;
+  seed: string;
+  instruct: string;
   refExists: boolean;
   redesign: boolean;
+  storedSource?: string;
+}
+
+export function sha1Hex(data: string | Uint8Array): string {
+  return createHash("sha1").update(data).digest("hex");
+}
+
+export function requestedSource(input: NarratorInput): string | undefined {
+  if (input.voiceSha1) return `sample:${input.voiceSha1}`;
+  const base = input.language.toLowerCase().split(/[-_]/)[0]!;
+  if (input.model !== "omni" || !DESIGN_LANGUAGES.includes(base)) return undefined;
+  return `designed:${input.seed}:${sha1Hex(input.instruct + input.language)}`;
 }
 
 export function narratorPlan(input: NarratorInput): NarratorPlan {
-  const base = input.language.toLowerCase().split(/[-_]/)[0]!;
-  if (input.voice || input.model !== "omni" || !DESIGN_LANGUAGES.includes(base)) return "none";
-  return input.refExists && !input.redesign ? "reuse" : "design";
+  const source = requestedSource(input);
+  if (!source) return "none";
+  if (input.refExists && !input.redesign && input.storedSource === source) return "reuse";
+  return source.startsWith("designed:") ? "design" : "clone";
 }

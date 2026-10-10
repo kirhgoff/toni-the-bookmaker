@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
-import { narratorPlan } from "./narrator.ts";
+import { narratorPlan, requestedSource, sha1Hex, type NarratorInput } from "./narrator.ts";
 import { verifyBook } from "./loudness.ts";
 import { prepareSource, prepareVoiceReference, audioDuration } from "./prep.ts";
 import { renderLocal, renderRemote, type RenderOptions } from "./render.ts";
@@ -15,7 +15,7 @@ const USAGE = `Record an audiobook from a text or PDF file.
 
   -i, --input INPUT     Source .txt or .pdf (required)
   -v, --voice VOICE     Voice sample to clone. Omit for a narrator designed once and reused (omni: en, ru).
-  --redesign-voice      Discard the designed narrator and draw a new one (use with --seed or TONI_OMNI_INSTRUCT)
+  --redesign-voice      Prepare the voice reference again (a new designed narrator, or a fresh clone of -v)
   -n, --name NAME       Output folder name (default: input filename stem)
   -t, --tag TAG         Run folder suffix explaining the run (default: <model>-<host or local>)
   -o, --output-dir DIR  Library folder that holds all books (default: $AUDIOBOOK_LIBRARY or ~/Downloads/audiobooks)
@@ -150,38 +150,42 @@ async function main(): Promise<void> {
 
   const voiceRef = `${bookDir}/voice_ref.wav`;
   const refTextPath = `${bookDir}/voice_ref.txt`;
-  const plan = narratorPlan({
-    voice,
+  const refSourcePath = `${bookDir}/voice_ref.source`;
+  const narrator: NarratorInput = {
+    ...(voice ? { voiceSha1: sha1Hex(new Uint8Array(await Bun.file(voice).arrayBuffer())) } : {}),
     model: values.model!,
     language: values.language!,
+    seed: values.seed ?? "0",
+    instruct: process.env.TONI_OMNI_INSTRUCT ?? "",
     refExists: await Bun.file(voiceRef).exists(),
     redesign: values["redesign-voice"],
-  });
+    ...((await Bun.file(refSourcePath).exists()) ? { storedSource: (await Bun.file(refSourcePath).text()).trim() } : {}),
+  };
+  const plan = narratorPlan(narrator);
+  if (plan === "design" || plan === "clone") {
+    await Promise.all([voiceRef, refTextPath, refSourcePath].map((path) => rm(path, { force: true })));
+  }
   if (plan === "design") {
     log("Designing narrator voice (once, so the voice never drifts)");
-    await rm(voiceRef, { force: true });
-    await rm(refTextPath, { force: true });
     await runOrThrow([
       "uv", "run", "--project", PROJECT_DIR, "--extra", "omni",
       "python", "-m", "toni.design_voice", "--out", voiceRef, "--text-out", refTextPath,
       "--language", values.language!, "--seed", values.seed ?? "0",
     ]);
     log(`Designed narrator voice: listen to ${voiceRef} before the render finishes`);
-  } else if (plan === "reuse") {
-    log("Designed narrator voice already exists, reusing");
-  }
-  if (voice && !(await Bun.file(voiceRef).exists())) {
+  } else if (plan === "clone") {
     log("Preparing voice reference");
-    await prepareVoiceReference(voice, voiceRef);
+    await prepareVoiceReference(voice!, voiceRef);
     log("Transcribing reference (once, so render workers never load Whisper)");
     await runOrThrow([
       "uv", "run", "--project", PROJECT_DIR, "--extra", "omni",
       "python", "-m", "toni.transcribe", voiceRef, "-o", refTextPath,
     ]);
     log(`  "${(await Bun.file(refTextPath).text()).slice(0, 60)}..."`);
-  } else if (voice) {
+  } else if (plan === "reuse") {
     log("Voice reference already prepared, reusing");
   }
+  if (plan === "design" || plan === "clone") await Bun.write(refSourcePath, requestedSource(narrator)!);
 
   const lexicon = `${bookDir}/lexicon.txt`;
 
@@ -200,7 +204,7 @@ async function main(): Promise<void> {
     ...(values.batch ? { batch: values.batch } : {}),
     qc: !values["no-qc"],
     ...(values.chapters ? { chapterPattern: values.chapters } : {}),
-    ...(voice || plan !== "none" ? { voiceRef } : {}),
+    ...(plan !== "none" ? { voiceRef } : {}),
     ...((await Bun.file(lexicon).exists()) ? { lexicon } : {}),
     ...((await Bun.file(refTextPath).exists())
       ? { refText: await Bun.file(refTextPath).text() }
