@@ -119,7 +119,7 @@ stress-marked.
 | `-p, --pause` | 500 | Pause between sentences and chunks, in milliseconds; paragraph ends get twice that |
 | `-f, --format` | m4b | `m4b` (with chapters) or `mp3` (no chapters) |
 | `--cover` | `cover.jpg`/`cover.png` in the book folder | Cover art (.jpg/.png, max 8 MB) embedded in the `m4b` |
-| `--loudness` | default | Loudness target: `default` (-18 LUFS) or `acx` (-19 LUFS, -3 dBTP, for Audible/ACX) |
+| `--loudness` | default | Loudness target: `default` (-18 LUFS) or `acx` (-19 LUFS ±1, true peak at most -3 dBTP, for Audible/ACX); the run fails if the finished file still misses the preset |
 | `-c, --chapters` | see below | Chapter heading pattern |
 | `-l, --language` | en | Language code |
 | `-m, --model` | omni | TTS engine: `omni`, `pocket`, `kani`, `espeech`, or `qwen` |

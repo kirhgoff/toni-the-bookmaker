@@ -9,16 +9,16 @@ export interface LoudnessPreset {
   lufs: number;
   truePeak: number;
   range: number;
+  tolerance: number;
 }
 
 export const PRESETS = {
-  default: { lufs: -18, truePeak: -2, range: 11 },
-  acx: { lufs: -19, truePeak: -3, range: 11 },
+  default: { lufs: -18, truePeak: -2, range: 11, tolerance: 2 },
+  acx: { lufs: -19, truePeak: -3, range: 11, tolerance: 1 },
 } as const satisfies Record<string, LoudnessPreset>;
 
 export type PresetName = keyof typeof PRESETS;
 
-const TOLERANCE_LU = 2;
 const ENCODERS: Record<string, string> = { aac: "aac", mp3: "libmp3lame" };
 
 export interface Loudness {
@@ -57,7 +57,18 @@ export function parseLoudnorm(stderr: string): Loudness {
 }
 
 export function needsNormalizing(loudness: Loudness, preset: LoudnessPreset = PRESETS.default): boolean {
-  return Math.abs(loudness.integrated - preset.lufs) > TOLERANCE_LU;
+  return Math.abs(loudness.integrated - preset.lufs) > preset.tolerance || loudness.truePeak > preset.truePeak;
+}
+
+function describeLoudness(loudness: Loudness, preset: LoudnessPreset): string {
+  return `${loudness.integrated.toFixed(1)} LUFS integrated (target ${preset.lufs} ±${preset.tolerance}), ` +
+    `true peak ${loudness.truePeak.toFixed(1)} dBTP (max ${preset.truePeak})`;
+}
+
+export function assertMeetsPreset(loudness: Loudness, preset: LoudnessPreset, path: string): void {
+  if (needsNormalizing(loudness, preset)) {
+    throw new Error(`${path} is still outside the loudness preset after normalizing: ${describeLoudness(loudness, preset)}`);
+  }
 }
 
 export async function measureLoudness(path: string, preset: LoudnessPreset = PRESETS.default): Promise<Loudness> {
@@ -105,10 +116,13 @@ export async function normalizeLoudness(
 export async function verifyBook(path: string, preset: LoudnessPreset = PRESETS.default): Promise<void> {
   log("Checking decode and loudness");
   const measured = await measureLoudness(path, preset);
-  log(`  ${measured.integrated.toFixed(1)} LUFS integrated, true peak ${measured.truePeak.toFixed(1)} dBTP (target ${preset.lufs} ±${TOLERANCE_LU})`);
+  log(`  ${describeLoudness(measured, preset)}`);
   if (!needsNormalizing(measured, preset)) return;
   log(`  Normalizing to ${preset.lufs} LUFS, keeping chapters and metadata`);
   await normalizeLoudness(path, measured, preset);
+  const normalized = await measureLoudness(path, preset);
+  log(`  After normalizing: ${describeLoudness(normalized, preset)}`);
+  assertMeetsPreset(normalized, preset, path);
 }
 
 if (import.meta.main) {
