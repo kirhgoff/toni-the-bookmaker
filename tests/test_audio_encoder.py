@@ -34,3 +34,11 @@ def test_build_chapters_offsets_use_variable_pauses(tmp_path):
     chapters, total = build_chapters(paths, texts, pause_ms=400)
     assert [start for start, _ in chapters] == [0, 1000 + 400 + 1000 + 100]
     assert total == 3000 + 400 + 100
+
+
+def test_build_chapters_offsets_include_extra_pauses(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 1000) for i in range(3)]
+    texts = ["CHAPTER 1.", "Middle.", "CHAPTER 2."]
+    chapters, total = build_chapters(paths, texts, pause_ms=400, extra_pauses_ms=[0, 800, 0])
+    assert [start for start, _ in chapters] == [0, 2000 + 400 + 800 + 400]
+    assert total == 3000 + 400 + 400 + 800

@@ -101,6 +101,19 @@ Ambiguous tokens (`1,000`, `007`, `A12`, `1.2.3`) are left alone. Russian
 numerals are read in the nominative case regardless of context. Set
 `TONI_NORMALIZE=0` to turn all of this off.
 
+### Pacing tags
+
+Put tags in the source text to hand-tune pacing; they are never spoken:
+
+- `[pause]` adds 350 ms of silence, `[pause 800ms]` or `[pause 2s]` a chosen
+  length (at most 10 s). It stacks on the normal pause between chunks, and
+  chapter timings account for it.
+- `[slow]...[/slow]` narrates the passage at 0.85x speed. Only `omni`
+  supports speed; other engines ignore it with a warning.
+
+A malformed tag (`[pause soon]`, a stray `[/slow]`) is left as text and a
+warning is printed.
+
 ### Pronunciation lexicon
 
 Put a `lexicon.txt` next to the book's `source.txt`

@@ -229,6 +229,7 @@ class WorkManager:
         total_chunks: int,
         copied_input: Path | None = None,
         copied_voice: Path | None = None,
+        chunk_marks: list[dict[str, Any]] | None = None,
     ) -> Manifest:
         """Initialize a new manifest with run parameters."""
         self._manifest = Manifest(
@@ -250,7 +251,8 @@ class WorkManager:
         )
 
         for i in range(total_chunks):
-            self._manifest.chunks[str(i)] = {"status": "pending"}
+            marks = chunk_marks[i] if chunk_marks else {}
+            self._manifest.chunks[str(i)] = {"status": "pending", **marks}
 
         self.save_manifest()
         return self._manifest
@@ -375,6 +377,35 @@ class WorkManager:
             manifest.chunks[sub_id] = {"status": "pending", "parent": str(parent_id)}
 
             self.save_manifest()
+
+    def get_chunk_speed(self, chunk_id: str) -> float | None:
+        """Speed set on the chunk or the nearest ancestor it was split from."""
+        chunks = self.load_manifest().chunks
+        current: str | None = str(chunk_id)
+        while current is not None:
+            data = chunks.get(current, {})
+            if data.get("speed") is not None:
+                return data["speed"]
+            current = data.get("parent")
+        return None
+
+    def get_extra_pauses(self, chunk_ids: list[str]) -> list[int]:
+        """Extra pause in ms after each chunk; a split chunk's pause follows its last sub-chunk."""
+        chunks = self.load_manifest().chunks
+        pauses = []
+        for chunk_id in chunk_ids:
+            total = 0
+            current: str | None = str(chunk_id)
+            while current is not None:
+                data = chunks.get(current, {})
+                total += data.get("pause_ms", 0)
+                parent = data.get("parent")
+                siblings = sorted(
+                    chunks.get(parent, {}).get("sub_chunks", []), key=_chunk_sort_key
+                )
+                current = parent if siblings and siblings[-1] == current else None
+            pauses.append(total)
+        return pauses
 
     def get_all_audio_chunks_ordered(self) -> list[str]:
         """Get all chunk IDs that have audio, in correct order for concatenation."""

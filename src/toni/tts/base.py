@@ -31,6 +31,8 @@ class TTSEngine(ABC):
         """Return the maximum recommended characters per chunk."""
         pass
 
+    supports_speed = False
+
     @abstractmethod
     def load(self) -> None:
         """Load the model into memory. Called once before generation."""

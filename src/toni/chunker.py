@@ -1,8 +1,10 @@
 """Text chunking for TTS processing."""
 
 import re
+from dataclasses import dataclass
 
 from toni.lexicon import apply_lexicon
+from toni.pause_tags import parse_pause_tags
 from toni.text_normalization import normalization_enabled, normalize_speech_text
 
 ABBREVIATIONS = frozenset({
@@ -16,7 +18,40 @@ TERMINAL_PUNCTUATION = re.compile(r"[.!?…,:;\-—][\"»”\')\]]*$")
 SPEAKABLE = re.compile(r"\w")
 
 
+@dataclass
+class Chunk:
+    text: str
+    pause_ms: int = 0
+    speed: float | None = None
+
+
 def chunk_text(
+    text: str,
+    max_chars: int = 500,
+    language: str | None = None,
+    lexicon: dict[str, str] | None = None,
+) -> list[str]:
+    """chunk_with_marks without the pacing metadata."""
+    return [chunk.text for chunk in chunk_with_marks(text, max_chars, language, lexicon)]
+
+
+def chunk_with_marks(
+    text: str,
+    max_chars: int = 500,
+    language: str | None = None,
+    lexicon: dict[str, str] | None = None,
+) -> list[Chunk]:
+    """Chunk text, honouring [pause] and [slow] tags as per-chunk metadata."""
+    chunks: list[Chunk] = []
+    for segment in parse_pause_tags(text):
+        pieces = _chunk_plain(segment.text, max_chars, language, lexicon)
+        chunks.extend(Chunk(piece, speed=segment.speed) for piece in pieces)
+        if pieces:
+            chunks[-1].pause_ms = segment.pause_ms
+    return chunks
+
+
+def _chunk_plain(
     text: str,
     max_chars: int = 500,
     language: str | None = None,
