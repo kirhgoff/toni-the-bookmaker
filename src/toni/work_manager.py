@@ -406,7 +406,8 @@ class WorkManager:
         return [
             chunk_id
             for chunk_id, data in manifest.chunks.items()
-            if data.get("status") == "completed" and "verdict" not in data.get("qc", {})
+            if data.get("status") == "completed"
+            and data.get("qc", {}).get("verdict") in (None, "error")
         ]
 
     def get_failed_chunks(self) -> list[str]:

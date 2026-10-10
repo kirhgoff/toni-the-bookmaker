@@ -114,7 +114,8 @@ def test_hypothesis_is_normalised_like_the_chunk_text(fake, tmp_path, monkeypatc
 
 
 @requires_ffmpeg
-def test_asr_error_keeps_the_chunk_and_the_run(fake, tmp_path) -> None:
+def test_asr_error_keeps_the_chunk_and_the_run(fake, tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("toni.cli.MIN_CHECKED_SECONDS", 0.1)
     fake.asr_errors = {CHUNKS[2]}
     work = run_toni(tmp_path, TEXT)
     chunk = work.load_manifest().chunks["2"]
@@ -122,6 +123,20 @@ def test_asr_error_keeps_the_chunk_and_the_run(fake, tmp_path) -> None:
     assert chunk["status"] == "completed"
     assert [t for t, _ in fake.takes].count(CHUNKS[2]) == 1
     assert work.get_all_audio_chunks_ordered() == ["0", "1", "2", "3", "4"]
+
+
+@requires_ffmpeg
+def test_errored_chunk_is_checked_again_on_resume(fake, tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("toni.cli.MIN_CHECKED_SECONDS", 0.1)
+    fake.asr_errors = {CHUNKS[2]}
+    work = run_toni(tmp_path, TEXT)
+    assert work.load_manifest().chunks["2"]["qc"]["verdict"] == "error"
+    fake.asr_errors = set()
+    transcribed = fake.transcribed
+    work = run_toni(tmp_path, TEXT)
+    assert work.load_manifest().chunks["2"]["qc"]["verdict"] == "pass"
+    assert fake.transcribed == transcribed + 1
+    assert [t for t, _ in fake.takes].count(CHUNKS[2]) == 1
 
 
 def test_median_is_clamped_to_the_ratio_window() -> None:

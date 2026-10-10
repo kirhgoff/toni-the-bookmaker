@@ -266,7 +266,7 @@ def qc_pass(
         text = work.load_chunk_text(cid)
         seconds = expected(text, work.get_chunk_speed(cid))
         stored = work.load_manifest().chunks[cid].get("qc")
-        if stored:
+        if stored and "wer" in stored:
             wer, ratio = stored["wer"], stored["ratio"]
         else:
             transcriber = transcriber or load_transcriber()
@@ -319,7 +319,7 @@ def _checked_ratios(work: "WorkManager", expected: Callable[[str, float | None],
     return [
         data["qc"]["ratio"]
         for cid, data in work.load_manifest().chunks.items()
-        if "verdict" in data.get("qc", {})
+        if "ratio" in data.get("qc", {})
         and expected(work.load_chunk_text(cid), work.get_chunk_speed(cid)) >= MIN_CHECKED_SECONDS
     ]
 
