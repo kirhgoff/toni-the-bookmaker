@@ -72,9 +72,10 @@ def concatenate_from_files(
 
 
 DEFAULT_CHAPTER_PATTERN = (
-    r"^\s*(PART|BOOK|CHAPTER|SECTION|PROLOGUE|EPILOGUE"
-    r"|Part|Book|Chapter|Section|Prologue|Epilogue)\b"
+    r"(?i)^\s*(part|book|chapter|section|prologue|epilogue"
+    r"|глава|часть|книга|пролог|эпилог)\b"
 )
+MAX_HEADING_CHARS = 60
 
 CHAPTERED_FORMATS = {".m4b", ".m4a", ".mp4"}
 
@@ -115,7 +116,7 @@ def build_chapters(
 
     for index, (audio_path, text) in enumerate(zip(audio_paths, chunk_texts)):
         title = " ".join((text or "").split())
-        if title and heading.match(title):
+        if title and len(title) <= MAX_HEADING_CHARS and heading.match(title):
             if not chapters or chapters[-1][1] != title[:120]:
                 chapters.append((offset, title[:120]))
         offset += wav_duration_ms(audio_path)

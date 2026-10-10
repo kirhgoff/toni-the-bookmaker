@@ -206,7 +206,7 @@ prefer the script unless you have a specific reason not to.
 ## Troubleshooting
 
 - **No chapters appear in the output.** The chapter detector looks for lines
-  starting with words like `CHAPTER` or `PART`. Check what your book actually
+  starting with words like `CHAPTER`, `PART` or `Глава` (any case, at most 60 characters). Check what your book actually
   uses (`grep -cE "^(PART|BOOK|CHAPTER|Chapter)\b" source.txt`) and pass your
   own pattern with `-c` if it comes back zero.
 - **The time estimate looks wrong early on.** Per-chunk timing drifts as the
