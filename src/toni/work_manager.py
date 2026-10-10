@@ -33,6 +33,7 @@ class Manifest:
     total_chunks: int = 0
     copied_input: str | None = None
     copied_voice: str | None = None
+    seed: int = 0
     chunks: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -47,6 +48,7 @@ class Manifest:
             "total_chunks": self.total_chunks,
             "copied_input": self.copied_input,
             "copied_voice": self.copied_voice,
+            "seed": self.seed,
             "chunks": self.chunks,
         }
 
@@ -63,6 +65,7 @@ class Manifest:
             total_chunks=data.get("total_chunks", 0),
             copied_input=data.get("copied_input"),
             copied_voice=data.get("copied_voice"),
+            seed=data.get("seed", 0),
             chunks=data.get("chunks", {}),
         )
 
@@ -230,6 +233,7 @@ class WorkManager:
         copied_input: Path | None = None,
         copied_voice: Path | None = None,
         chunk_marks: list[dict[str, Any]] | None = None,
+        seed: int = 0,
     ) -> Manifest:
         """Initialize a new manifest with run parameters."""
         self._manifest = Manifest(
@@ -247,6 +251,7 @@ class WorkManager:
             copied_voice=str(copied_voice.relative_to(self.work_dir))
             if copied_voice
             else None,
+            seed=seed,
             chunks={},
         )
 
@@ -300,6 +305,7 @@ class WorkManager:
         status: str,
         error: str | None = None,
         sub_chunks: list[str] | None = None,
+        seed: int | None = None,
     ) -> None:
         """Update chunk status."""
         with self._locked_manifest() as manifest:
@@ -316,6 +322,9 @@ class WorkManager:
 
             if sub_chunks is not None:
                 chunk_data["sub_chunks"] = sub_chunks
+
+            if seed is not None:
+                chunk_data["seed"] = seed
 
             if status == "failed":
                 chunk_data["retries"] = chunk_data.get("retries", 0) + 1

@@ -168,6 +168,7 @@ stress-marked.
 | `-c, --chapters` | see below | Chapter heading pattern |
 | `-l, --language` | en | Language code |
 | `-m, --model` | omni | TTS engine: `omni`, `pocket`, `kani`, `espeech`, or `qwen` |
+| `--seed` | 0 | Base seed; the same seed and text always give the same audio, so a regenerated chunk keeps its delivery |
 | `-H, --host` | none | Render on a remote GPU host instead of locally |
 | `-d, --detach` | off | Run in the background |
 | `-h, --help` | | Show this help |

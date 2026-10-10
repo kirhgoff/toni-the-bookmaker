@@ -6,6 +6,7 @@ from multiprocessing import get_context
 from pathlib import Path
 
 import click
+import numpy as np
 from tqdm import tqdm
 
 from toni import __version__
@@ -16,6 +17,7 @@ from toni.audio_encoder import (
 )
 from toni.chunker import chunk_with_marks, split_chunk
 from toni.lexicon import load_lexicon
+from toni.seed import chunk_seed, seed_everything
 from toni.text_extractor import extract_text
 from toni.tts import get_engine, list_engines
 from toni.work_manager import WorkManager
@@ -92,6 +94,18 @@ def _speed_kwargs(engine, speed: float | None) -> dict:
     return {}
 
 
+def _finish_chunk(
+    work: "WorkManager",
+    engine,
+    chunk_id: str,
+    text: str,
+    audio: np.ndarray,
+    seed: int,
+) -> None:
+    save_chunk_wav(audio, engine.sample_rate, work.get_chunk_audio_path(chunk_id))
+    work.set_chunk_status(chunk_id, "completed", seed=seed)
+
+
 def _process_chunk_recursive(
     work: "WorkManager",
     engine,
@@ -123,14 +137,14 @@ def _process_chunk_recursive(
     text = work.load_chunk_text(chunk_id)
 
     try:
+        seed = chunk_seed(work.load_manifest().seed, text, work.get_retries(chunk_id))
+        seed_everything(seed)
         audio = engine.generate(
             text,
             voice_sample=voice_file,
             **_speed_kwargs(engine, work.get_chunk_speed(chunk_id)),
         )
-        audio_path = work.get_chunk_audio_path(chunk_id)
-        save_chunk_wav(audio, engine.sample_rate, audio_path)
-        work.set_chunk_status(chunk_id, "completed")
+        _finish_chunk(work, engine, chunk_id, text, audio, seed)
         generated_ids.append(chunk_id)
         return True
 
@@ -262,6 +276,13 @@ def _chunk_marks(chunk) -> dict:
     help=f"Number of parallel workers. Default: {get_default_workers()} (half of CPU cores).",
 )
 @click.option(
+    "--seed",
+    type=int,
+    default=0,
+    envvar="TONI_SEED",
+    help="Base seed; same seed and text give the same audio.",
+)
+@click.option(
     "--verbose",
     is_flag=True,
     help="Show detailed progress.",
@@ -279,6 +300,7 @@ def main(
     work_dir: Path | None,
     max_retries: int,
     workers: int | None,
+    seed: int,
     verbose: bool,
 ) -> None:
     """Generate audiobook from PDF or text file.
@@ -313,6 +335,7 @@ def main(
         click.echo(f"Output: {output_file}")
         click.echo(f"Model: {model}")
         click.echo(f"Workers: {workers}")
+        click.echo(f"Seed: {seed}")
         click.echo(f"Work directory: {work.work_dir}")
         if voice_file:
             click.echo(f"Voice: {voice_file}")
@@ -366,6 +389,7 @@ def main(
             copied_input=copied_input,
             copied_voice=copied_voice,
             chunk_marks=[_chunk_marks(chunk) for chunk in chunks],
+            seed=seed,
         )
 
         for i, chunk in enumerate(chunks):

@@ -24,6 +24,7 @@ const USAGE = `Record an audiobook from a text or PDF file.
   -c, --chapters REGEX  Chapter heading pattern
   -l, --language LANG   Language code (default: en)
   -m, --model MODEL     TTS engine: omni (default), pocket, kani, espeech, qwen
+  --seed N              Base seed; same seed and text give the same audio (default: 0)
   -H, --host HOST       Render on a remote GPU host instead of locally
   -d, --detach          Run in the background, surviving terminal and sleep
   -h, --help            This help
@@ -90,6 +91,7 @@ async function main(): Promise<void> {
       chapters: { type: "string", short: "c" },
       language: { type: "string", short: "l", default: "en" },
       model: { type: "string", short: "m", default: "omni" },
+      seed: { type: "string" },
       host: { type: "string", short: "H" },
       detach: { type: "boolean", short: "d", default: false },
       help: { type: "boolean", short: "h", default: false },
@@ -167,6 +169,7 @@ async function main(): Promise<void> {
     workers: Number.parseInt(values.workers!, 10),
     language: values.language!,
     model: values.model!,
+    ...(values.seed ? { seed: values.seed } : {}),
     ...(values.chapters ? { chapterPattern: values.chapters } : {}),
     ...(voice ? { voiceRef } : {}),
     ...((await Bun.file(lexicon).exists()) ? { lexicon } : {}),
