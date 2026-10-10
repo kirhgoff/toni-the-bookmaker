@@ -39,7 +39,18 @@ Re-running the same command resumes an unfinished run; a different -v starts a n
 
 const PROJECT_DIR = resolve(import.meta.dir, "../..");
 
-const RUN_DIR_PATTERN = /^\d{4}-\d{2}-\d{2}-\d{4}-(.+)$/;
+const RUN_DIR_PATTERN = /^(\d{4}-\d{2}-\d{2}-\d{4})(?:\.(\d+))?-(.+)$/;
+
+function runDirOrder(name: string): [string, number] {
+  const match = RUN_DIR_PATTERN.exec(name)!;
+  return [match[1]!, Number(match[2] ?? 1)];
+}
+
+function newestFirst(a: string, b: string): number {
+  const [stampA, serialA] = runDirOrder(a);
+  const [stampB, serialB] = runDirOrder(b);
+  return stampB.localeCompare(stampA) || serialB - serialA;
+}
 
 function timestampedRunName(now: Date, tag: string): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -47,13 +58,19 @@ function timestampedRunName(now: Date, tag: string): string {
   return `${stamp}-${tag}`;
 }
 
-export async function pickRunDir(bookDir: string, name: string, format: string, tag: string, source: string): Promise<string> {
+export async function pickRunDir(
+  bookDir: string,
+  name: string,
+  format: string,
+  tag: string,
+  source: string,
+  now = new Date(),
+): Promise<string> {
   const entries = await readdir(bookDir, { withFileTypes: true }).catch(() => []);
   const runDirs = entries
-    .filter((entry) => entry.isDirectory() && RUN_DIR_PATTERN.exec(entry.name)?.[1] === tag)
+    .filter((entry) => entry.isDirectory() && RUN_DIR_PATTERN.exec(entry.name)?.[3] === tag)
     .map((entry) => entry.name)
-    .sort()
-    .reverse();
+    .sort(newestFirst);
 
   for (const runDir of runDirs) {
     const finished = await Bun.file(`${bookDir}/${runDir}/${name}.${format}`).exists();
@@ -66,7 +83,13 @@ export async function pickRunDir(bookDir: string, name: string, format: string, 
     return `${bookDir}/${runDir}`;
   }
 
-  return `${bookDir}/${timestampedRunName(new Date(), tag)}`;
+  const taken = new Set(entries.map((entry) => entry.name));
+  const fresh = timestampedRunName(now, tag);
+  let candidate = fresh;
+  for (let serial = 2; taken.has(candidate); serial++) {
+    candidate = fresh.replace(/^(\d{4}-\d{2}-\d{2}-\d{4})/, `$1.${serial}`);
+  }
+  return `${bookDir}/${candidate}`;
 }
 
 async function detach(argv: string[], logPath: string): Promise<void> {

@@ -27,3 +27,28 @@ test("a run that predates the provenance file is still resumed", async () => {
   await mkdir(newer);
   expect(await pickRunDir(dir, "book", "m4b", "omni-local", "sample:zzz")).toBe(newer);
 });
+
+test("switching the voice sample within the same minute starts a separate run", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "toni-runs-"));
+  const now = new Date(2026, 0, 5, 9, 30);
+  const first = await pickRunDir(dir, "book", "m4b", "omni-local", "sample:aaa", now);
+  await mkdir(first);
+  await writeFile(join(first, "voice_ref.source"), "sample:aaa");
+
+  const second = await pickRunDir(dir, "book", "m4b", "omni-local", "sample:bbb", now);
+  expect(second).toBe(join(dir, "2026-01-05-0930.2-omni-local"));
+  await mkdir(second);
+  await writeFile(join(second, "voice_ref.source"), "sample:bbb");
+
+  expect(await pickRunDir(dir, "book", "m4b", "omni-local", "sample:aaa", now)).toBe(first);
+  expect(await pickRunDir(dir, "book", "m4b", "omni-local", "sample:bbb", now)).toBe(second);
+  expect(await pickRunDir(dir, "book", "m4b", "omni-local", "sample:ccc", now)).toBe(join(dir, "2026-01-05-0930.3-omni-local"));
+});
+
+test("an unfinished run with a later serial is resumed ahead of the base one", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "toni-runs-"));
+  for (const run of ["2026-01-05-0930-omni-local", "2026-01-05-0930.2-omni-local", "2026-01-05-0930.10-omni-local"]) {
+    await mkdir(join(dir, run));
+  }
+  expect(await pickRunDir(dir, "book", "m4b", "omni-local", "sample:aaa")).toBe(join(dir, "2026-01-05-0930.10-omni-local"));
+});
