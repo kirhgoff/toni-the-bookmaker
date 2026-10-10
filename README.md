@@ -81,9 +81,14 @@ generate, since the sample is replayed as a reference each time). It's also
 transcribed once up front, so the actual narration doesn't need to keep
 re-listening to figure out what the sample says.
 
-If you don't pass `-v`, you get a synthesized narrator voice instead of a
-clone. It's regenerated per worker process, so the voice can shift slightly
-partway through — passing a sample avoids that.
+If you don't pass `-v`, `omni` (English and Russian) designs the narrator once
+before rendering: it speaks one fixed sentence from the voice description
+(`TONI_OMNI_INSTRUCT`, default "male, middle-aged, low pitch"), saves it as
+`<book>/voice_ref.wav`, and clones that voice for the whole book, so it never
+drifts. The log prints the path so you can listen before the long render
+finishes. Re-runs reuse it; `--redesign-voice` (with `--seed N` or a new
+description) draws a different one. Other engines and languages synthesize
+from the description per chunk, so the voice can shift — pass a sample.
 
 ## Languages
 
@@ -170,6 +175,7 @@ stress-marked.
 | `-m, --model` | omni | TTS engine: `omni`, `pocket`, `kani`, `espeech`, or `qwen` |
 | `--seed` | 0 | Base seed; the same seed and text always give the same audio, so a regenerated chunk keeps its delivery |
 | `--batch` / `TONI_BATCH` | auto | `omni` only: chunks per model call (max 16). Batching runs in one process, so `-w` is ignored, and each batch shares one seed (the first chunk's), so a batch is reproducible as a whole |
+| `--redesign-voice` | off | Throw away the designed narrator (no `-v`) and design a new one |
 | `--no-qc` | QC on | Skip the quality check (see [Quality check](#quality-check)) |
 | `-H, --host` | none | Render on a remote GPU host instead of locally |
 | `-d, --detach` | off | Run in the background |

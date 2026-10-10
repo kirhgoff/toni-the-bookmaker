@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
-import { mkdir, readdir } from "node:fs/promises";
+import { mkdir, readdir, rm } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
+import { narratorPlan } from "./narrator.ts";
 import { verifyBook } from "./loudness.ts";
 import { prepareSource, prepareVoiceReference, audioDuration } from "./prep.ts";
 import { renderLocal, renderRemote, type RenderOptions } from "./render.ts";
@@ -13,7 +14,8 @@ const USAGE = `Record an audiobook from a text or PDF file.
   toni-record -i INPUT [-v VOICE] [options]
 
   -i, --input INPUT     Source .txt or .pdf (required)
-  -v, --voice VOICE     Voice sample to clone. Omit for a designed voice.
+  -v, --voice VOICE     Voice sample to clone. Omit for a narrator designed once and reused (omni: en, ru).
+  --redesign-voice      Discard the designed narrator and draw a new one (use with --seed or TONI_OMNI_INSTRUCT)
   -n, --name NAME       Output folder name (default: input filename stem)
   -t, --tag TAG         Run folder suffix explaining the run (default: <model>-<host or local>)
   -o, --output-dir DIR  Library folder that holds all books (default: $AUDIOBOOK_LIBRARY or ~/Downloads/audiobooks)
@@ -94,6 +96,7 @@ async function main(): Promise<void> {
       language: { type: "string", short: "l", default: "en" },
       model: { type: "string", short: "m", default: "omni" },
       seed: { type: "string" },
+      "redesign-voice": { type: "boolean", default: false },
       batch: { type: "string" },
       "no-qc": { type: "boolean", default: false },
       host: { type: "string", short: "H" },
@@ -147,6 +150,26 @@ async function main(): Promise<void> {
 
   const voiceRef = `${bookDir}/voice_ref.wav`;
   const refTextPath = `${bookDir}/voice_ref.txt`;
+  const plan = narratorPlan({
+    voice,
+    model: values.model!,
+    language: values.language!,
+    refExists: await Bun.file(voiceRef).exists(),
+    redesign: values["redesign-voice"],
+  });
+  if (plan === "design") {
+    log("Designing narrator voice (once, so the voice never drifts)");
+    await rm(voiceRef, { force: true });
+    await rm(refTextPath, { force: true });
+    await runOrThrow([
+      "uv", "run", "--project", PROJECT_DIR, "--extra", "omni",
+      "python", "-m", "toni.design_voice", "--out", voiceRef, "--text-out", refTextPath,
+      "--language", values.language!, "--seed", values.seed ?? "0",
+    ]);
+    log(`Designed narrator voice: listen to ${voiceRef} before the render finishes`);
+  } else if (plan === "reuse") {
+    log("Designed narrator voice already exists, reusing");
+  }
   if (voice && !(await Bun.file(voiceRef).exists())) {
     log("Preparing voice reference");
     await prepareVoiceReference(voice, voiceRef);
@@ -177,7 +200,7 @@ async function main(): Promise<void> {
     ...(values.batch ? { batch: values.batch } : {}),
     qc: !values["no-qc"],
     ...(values.chapters ? { chapterPattern: values.chapters } : {}),
-    ...(voice ? { voiceRef } : {}),
+    ...(voice || plan !== "none" ? { voiceRef } : {}),
     ...((await Bun.file(lexicon).exists()) ? { lexicon } : {}),
     ...((await Bun.file(refTextPath).exists())
       ? { refText: await Bun.file(refTextPath).text() }
