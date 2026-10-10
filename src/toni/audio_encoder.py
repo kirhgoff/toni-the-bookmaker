@@ -1,6 +1,7 @@
 """Audio encoding and concatenation utilities."""
 
 import contextlib
+import os
 import re
 import subprocess
 import wave
@@ -291,11 +292,22 @@ def save_chunk_wav(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     audio_int16 = (audio * 32767).astype(np.int16)
 
-    with wave.open(str(output_path), "wb") as wav_file:
+    tmp_path = output_path.with_name(output_path.name + ".tmp")
+    with wave.open(str(tmp_path), "wb") as wav_file:
         wav_file.setnchannels(1)
         wav_file.setsampwidth(2)
         wav_file.setframerate(sample_rate)
         wav_file.writeframes(audio_int16.tobytes())
+    os.replace(tmp_path, output_path)
+
+
+def wav_is_valid(path: Path) -> bool:
+    try:
+        with contextlib.closing(wave.open(str(path), "rb")) as wf:
+            frames, width, channels = wf.getnframes(), wf.getsampwidth(), wf.getnchannels()
+    except (OSError, EOFError, wave.Error):
+        return False
+    return frames > 0 and path.stat().st_size >= 44 + frames * width * channels
 
 
 def load_chunk_wav(input_path: Path) -> np.ndarray:

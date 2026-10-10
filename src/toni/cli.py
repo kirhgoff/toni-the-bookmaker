@@ -2,23 +2,41 @@
 
 import os
 import shutil
+import wave
 from multiprocessing import get_context
 from pathlib import Path
+from typing import Callable
 
 import click
+import numpy as np
 from tqdm import tqdm
 
 from toni import __version__
 from toni.audio_encoder import (
     DEFAULT_CHAPTER_PATTERN,
     concatenate_with_ffmpeg,
+    load_chunk_wav,
     save_chunk_wav,
+    wav_duration_ms,
 )
 from toni.chunker import chunk_with_marks, split_chunk
 from toni.lexicon import load_lexicon
+from toni.qc import (
+    MIN_CHECKED_SECONDS,
+    Thresholds,
+    calibration_median,
+    expected_seconds,
+    spoken_form,
+    verdict,
+    word_error_rate,
+)
+from toni.seed import chunk_seed, seed_everything
 from toni.text_extractor import extract_text
 from toni.tts import get_engine, list_engines
-from toni.work_manager import WorkManager
+from toni.work_manager import WorkManager, run_fingerprint
+
+
+MAX_BATCH = 16
 
 
 def get_default_workers() -> int:
@@ -92,6 +110,19 @@ def _speed_kwargs(engine, speed: float | None) -> dict:
     return {}
 
 
+def _finish_chunk(
+    work: "WorkManager",
+    engine,
+    chunk_id: str,
+    text: str,
+    audio: np.ndarray,
+    seed: int,
+) -> None:
+    save_chunk_wav(audio, engine.sample_rate, work.get_chunk_audio_path(chunk_id))
+    work.publish_audio(chunk_id, text)
+    work.set_chunk_status(chunk_id, "completed", seed=seed)
+
+
 def _process_chunk_recursive(
     work: "WorkManager",
     engine,
@@ -123,14 +154,14 @@ def _process_chunk_recursive(
     text = work.load_chunk_text(chunk_id)
 
     try:
+        seed = chunk_seed(work.load_manifest().seed, text, work.get_retries(chunk_id))
+        seed_everything(seed)
         audio = engine.generate(
             text,
             voice_sample=voice_file,
             **_speed_kwargs(engine, work.get_chunk_speed(chunk_id)),
         )
-        audio_path = work.get_chunk_audio_path(chunk_id)
-        save_chunk_wav(audio, engine.sample_rate, audio_path)
-        work.set_chunk_status(chunk_id, "completed")
+        _finish_chunk(work, engine, chunk_id, text, audio, seed)
         generated_ids.append(chunk_id)
         return True
 
@@ -174,6 +205,132 @@ def _process_chunk_recursive(
 
         work.set_chunk_status(chunk_id, "failed", error=error_msg)
         return False
+
+
+def _process_batch(
+    work: "WorkManager",
+    engine,
+    ids: list[str],
+    voice_file: Path | None,
+    max_retries: int,
+    verbose: bool,
+) -> None:
+    if len(ids) == 1:
+        _process_chunk_recursive(work, engine, ids[0], voice_file, max_retries, 0, verbose, [])
+        return
+    texts = [work.load_chunk_text(cid) for cid in ids]
+    seed = chunk_seed(work.load_manifest().seed, texts[0], work.get_retries(ids[0]))
+    seed_everything(seed)
+    try:
+        audios = engine.generate_batch(
+            texts,
+            voice_sample=voice_file,
+            **_speed_kwargs(engine, work.get_chunk_speed(ids[0])),
+        )
+        results = list(zip(ids, texts, audios, strict=True))
+    except Exception as e:
+        if verbose:
+            click.echo(f"\nBatch {ids} failed, rendering per chunk: {str(e)[:100]}")
+        for cid in ids:
+            _process_chunk_recursive(work, engine, cid, voice_file, max_retries, 0, verbose, [])
+        return
+    for cid, text, audio in results:
+        _finish_chunk(work, engine, cid, text, audio, seed)
+
+
+def _batches(work: "WorkManager", pending: list[str], width: int) -> list[list[str]]:
+    by_speed: dict[float | None, list[str]] = {}
+    for cid in pending:
+        by_speed.setdefault(work.get_chunk_speed(cid), []).append(cid)
+    batches = []
+    for ids in by_speed.values():
+        ordered = sorted(ids, key=lambda cid: len(work.load_chunk_text(cid)))
+        batches += [ordered[i : i + width] for i in range(0, len(ordered), width)]
+    return batches
+
+
+def qc_pass(
+    work: "WorkManager",
+    load_transcriber: Callable[[], Callable[[np.ndarray, int], str]],
+    thresholds: Thresholds,
+    qc_retries: int,
+    max_retries: int,
+    expected: Callable[[str, float | None], float],
+    sample_rate: int,
+    language: str | None = None,
+) -> tuple[int, int, int, int]:
+    transcriber = None
+    heard = []
+    errors = 0
+    for cid in work.get_unchecked_chunks():
+        text = work.load_chunk_text(cid)
+        seconds = expected(text, work.get_chunk_speed(cid))
+        stored = work.load_manifest().chunks[cid].get("qc")
+        if stored and "wer" in stored:
+            wer, ratio = stored["wer"], stored["ratio"]
+        else:
+            transcriber = transcriber or load_transcriber()
+            audio = load_chunk_wav(work.get_chunk_audio_path(cid))
+            try:
+                hypothesis = transcriber(audio, sample_rate)
+            except Exception as e:
+                message = str(e)[:100]
+                click.echo(f"QC error {cid}: {message}")
+                work.set_chunk_status(cid, "completed", qc={"verdict": "error", "error": message})
+                errors += 1
+                continue
+            wer = word_error_rate(spoken_form(text, language), spoken_form(hypothesis, language))
+            ratio = len(audio) / sample_rate / seconds if seconds else 1.0
+        heard.append((cid, text, wer, ratio, seconds))
+
+    median = calibration_median(
+        [ratio for _, _, _, ratio, seconds in heard if seconds >= MIN_CHECKED_SECONDS]
+        + _checked_ratios(work, expected)
+    )
+    checked = flipped = gave_up = 0
+    for cid, text, wer, ratio, seconds in heard:
+        result = verdict(wer, ratio, seconds, thresholds, median)
+        retries = work.get_retries(cid)
+        qc = {"wer": round(wer, 3), "ratio": round(ratio, 2), "attempts": retries, "verdict": result}
+        checked += 1
+        retry = result == "fail" and retries < qc_retries
+        subs = split_chunk(text) if result == "fail" and not retry and cid.count("_") < max_retries else []
+        splitting = len(subs) > 1
+        work.set_chunk_status(cid, "pending" if retry else "completed", qc=qc)
+        if retry or splitting:
+            work.evict_cache(cid, text)
+        else:
+            work.publish_qc(cid, text, qc)
+        if result == "fail":
+            click.echo(f"QC fail {cid}: wer={wer:.2f} ratio={ratio:.2f} attempt={retries}")
+        if retry:
+            work.increment_retries(cid)
+            flipped += 1
+        elif splitting:
+            for i, sub in enumerate(subs):
+                work.add_sub_chunk(cid, f"{cid}_{i}", sub)
+            flipped += 1
+        elif result == "fail":
+            gave_up += 1
+    return checked, flipped, gave_up, errors
+
+
+def _checked_ratios(work: "WorkManager", expected: Callable[[str, float | None], float]) -> list[float]:
+    return [
+        data["qc"]["ratio"]
+        for cid, data in work.load_manifest().chunks.items()
+        if "ratio" in data.get("qc", {})
+        and expected(work.load_chunk_text(cid), work.get_chunk_speed(cid)) >= MIN_CHECKED_SECONDS
+    ]
+
+
+def _reference_seconds(voice_file: Path | None) -> float | None:
+    if voice_file is None:
+        return None
+    try:
+        return wav_duration_ms(voice_file) / 1000
+    except (wave.Error, EOFError):
+        return None
 
 
 def _chunk_marks(chunk) -> dict:
@@ -250,6 +407,12 @@ def _chunk_marks(chunk) -> dict:
     help="Custom work directory base. Defaults to ./work/",
 )
 @click.option(
+    "--cache-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Shared per-book chunk cache; defaults to <work-dir>/cache.",
+)
+@click.option(
     "--max-retries",
     type=int,
     default=2,
@@ -260,6 +423,55 @@ def _chunk_marks(chunk) -> dict:
     type=int,
     default=None,
     help=f"Number of parallel workers. Default: {get_default_workers()} (half of CPU cores).",
+)
+@click.option(
+    "--seed",
+    type=int,
+    default=0,
+    envvar="TONI_SEED",
+    help="Base seed; same seed and text give the same audio.",
+)
+@click.option(
+    "--batch",
+    type=click.IntRange(0, MAX_BATCH),
+    default=0,
+    envvar="TONI_BATCH",
+    help="Chunks per model call for engines that batch (0 = auto, max 16). "
+    "Batching runs in one process.",
+)
+@click.option(
+    "--qc/--no-qc",
+    default=True,
+    envvar="TONI_QC",
+    help="Transcribe each chunk back and regenerate ones that skip or garble text.",
+)
+@click.option(
+    "--qc-wer",
+    type=float,
+    default=0.25,
+    envvar="TONI_QC_WER",
+    help="Fail a chunk when its word error rate exceeds this.",
+)
+@click.option(
+    "--qc-ratio-min",
+    type=float,
+    default=0.6,
+    envvar="TONI_QC_RATIO_MIN",
+    help="Fail a chunk shorter than this fraction of its expected duration.",
+)
+@click.option(
+    "--qc-ratio-max",
+    type=float,
+    default=1.6,
+    envvar="TONI_QC_RATIO_MAX",
+    help="Fail a chunk longer than this multiple of its expected duration.",
+)
+@click.option(
+    "--qc-retries",
+    type=int,
+    default=2,
+    envvar="TONI_QC_RETRIES",
+    help="Regenerations per failing chunk before it is split.",
 )
 @click.option(
     "--verbose",
@@ -277,8 +489,16 @@ def main(
     bitrate: str,
     chapter_pattern: str,
     work_dir: Path | None,
+    cache_dir: Path | None,
     max_retries: int,
     workers: int | None,
+    seed: int,
+    batch: int,
+    qc: bool,
+    qc_wer: float,
+    qc_ratio_min: float,
+    qc_ratio_max: float,
+    qc_retries: int,
     verbose: bool,
 ) -> None:
     """Generate audiobook from PDF or text file.
@@ -313,6 +533,7 @@ def main(
         click.echo(f"Output: {output_file}")
         click.echo(f"Model: {model}")
         click.echo(f"Workers: {workers}")
+        click.echo(f"Seed: {seed}")
         click.echo(f"Work directory: {work.work_dir}")
         if voice_file:
             click.echo(f"Voice: {voice_file}")
@@ -328,6 +549,8 @@ def main(
         )
 
         voice_file_for_tts = work.get_copied_voice_path()
+        if bad := work.reset_invalid_audio():
+            click.echo(f"Re-rendering {len(bad)} truncated chunks")
     else:
         click.echo("Extracting text...")
         text = extract_text(input_file)
@@ -366,6 +589,9 @@ def main(
             copied_input=copied_input,
             copied_voice=copied_voice,
             chunk_marks=[_chunk_marks(chunk) for chunk in chunks],
+            seed=seed,
+            fingerprint=run_fingerprint(model, copied_voice, seed),
+            cache_dir=cache_dir or work_base / "cache",
         )
 
         for i, chunk in enumerate(chunks):
@@ -373,36 +599,54 @@ def main(
             if chunk.raw_text != chunk.text:
                 work.save_chunk_raw_text(str(i), chunk.raw_text)
 
+        reused = sum(
+            work.restore_from_cache(str(i), chunk.text) for i, chunk in enumerate(chunks)
+        )
+        click.echo(f"Reused {reused} chunks from cache")
+
         click.echo(f"Saved {total_chunks} text chunks to {work.chunks_dir}")
 
         voice_file_for_tts = copied_voice
         engine.unload()
 
-    pending_chunks = work.get_pending_chunks()
-    if not pending_chunks:
-        click.echo("No pending chunks to process.")
-    else:
-        click.echo(
-            f"Processing {len(pending_chunks)} chunks with {workers} worker(s)..."
-        )
+    thresholds = Thresholds(qc_wer, qc_ratio_min, qc_ratio_max)
+    ref_text = os.environ.get("TONI_REF_TEXT")
+    ref_seconds = _reference_seconds(voice_file_for_tts) if ref_text else None
+    base_speed = float(os.environ.get("TONI_OMNI_SPEED") or 1.0)
 
-        if workers == 1:
-            process_chunks_single(
-                work=work,
-                model=manifest.model,
-                voice_file=voice_file_for_tts,
-                max_retries=max_retries,
-                verbose=verbose,
+    def expected(text: str, chunk_speed: float | None) -> float:
+        return expected_seconds(text, ref_text, ref_seconds, base_speed * (chunk_speed or 1.0))
+
+    def load_asr():
+        from toni.transcribe import load_transcriber
+
+        return load_transcriber(os.environ.get("TONI_OMNI_DEVICE"))
+
+    totals = [0, 0, 0, 0]
+    while True:
+        render_pending(
+            work, manifest.model, voice_file_for_tts, max_retries, workers, batch, verbose
+        )
+        if not qc or not work.get_unchecked_chunks():
+            break
+        click.echo("Checking chunks...")
+        try:
+            counts = qc_pass(
+                work, load_asr, thresholds, qc_retries, max_retries, expected, manifest.sample_rate,
+                os.environ.get("TONI_LANGUAGE"),
             )
-        else:
-            process_chunks_parallel(
-                work=work,
-                model=manifest.model,
-                voice_file=voice_file_for_tts,
-                max_retries=max_retries,
-                workers=workers,
-                verbose=verbose,
-            )
+        except ImportError:
+            click.echo("QC skipped: transformers is not installed (install an engine extra such as omni)")
+            break
+        totals = [a + b for a, b in zip(totals, counts)]
+        if not counts[1]:
+            break
+    if qc:
+        click.echo(
+            f"QC: {totals[0]} checked, {totals[1]} regenerated, "
+            f"{totals[2]} still failing after retries"
+            + (f", {totals[3]} not checked (ASR errors)" if totals[3] else "")
+        )
 
     progress = work.get_progress_summary()
     click.echo(
@@ -446,8 +690,6 @@ def main(
         click.echo(f"Copying output to {output_file}...")
         shutil.copy2(work_output, output_file)
 
-    import wave
-
     total_duration_seconds = 0
     for audio_path in audio_paths:
         with wave.open(str(audio_path), "rb") as wf:
@@ -460,31 +702,48 @@ def main(
     click.echo(f"Work directory: {work.work_dir}")
 
 
+def render_pending(
+    work: WorkManager,
+    model: str,
+    voice_file: Path | None,
+    max_retries: int,
+    workers: int,
+    batch: int,
+    verbose: bool,
+) -> None:
+    pending = work.get_pending_chunks()
+    if not pending:
+        click.echo("No pending chunks to process.")
+        return
+    batching = batch != 1 and get_engine(model).supports_batching
+    if batching and workers > 1:
+        click.echo("Engine batches in one process; --workers ignored")
+    click.echo(f"Processing {len(pending)} chunks with {workers} worker(s)...")
+    if workers == 1 or batching:
+        process_chunks_single(work, model, voice_file, max_retries, verbose, batch)
+    else:
+        process_chunks_parallel(work, model, voice_file, max_retries, workers, verbose)
+
+
 def process_chunks_single(
     work: WorkManager,
     model: str,
     voice_file: Path | None,
     max_retries: int,
     verbose: bool,
+    batch: int = 1,
 ) -> None:
-    """Process all pending chunks sequentially with a single worker."""
     engine = get_engine(model)
     engine.load()
+    width = min(batch or engine.batch_width(), MAX_BATCH) if engine.supports_batching else 1
+    click.echo(f"Batch width {width}")
 
     pending = work.get_pending_chunks()
 
-    for chunk_id in tqdm(pending, desc="Processing", unit="chunk"):
-        generated_ids: list[str] = []
-        _process_chunk_recursive(
-            work=work,
-            engine=engine,
-            chunk_id=chunk_id,
-            voice_file=voice_file,
-            max_depth=max_retries,
-            current_depth=0,
-            verbose=verbose,
-            generated_ids=generated_ids,
-        )
+    with tqdm(total=len(pending), desc="Processing", unit="chunk") as bar:
+        for ids in _batches(work, pending, width):
+            _process_batch(work, engine, ids, voice_file, max_retries, verbose)
+            bar.update(len(ids))
 
     engine.unload()
 

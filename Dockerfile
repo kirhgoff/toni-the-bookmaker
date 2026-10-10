@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+    && apt-get install -y --no-install-recommends ffmpeg ca-certificates gcc libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir uv
@@ -16,7 +16,8 @@ RUN uv sync --extra $EXTRA \
 
 ENV HF_HOME=/models \
     TONI_LANGUAGE=en \
-    TONI_OMNI_DEVICE=cuda
+    TONI_OMNI_DEVICE=cuda \
+    TONI_OMNI_COMPILE=0
 
 ENTRYPOINT ["uv", "run", "--no-sync", "python", "-m", "toni.cli"]
 CMD ["--help"]
