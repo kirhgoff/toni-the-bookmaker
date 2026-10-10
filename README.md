@@ -199,6 +199,15 @@ Tune it with environment variables (or the matching `toni.cli` flags):
 is weak, raise `TONI_QC_WER`. Chunks under about 4 seconds skip the duration
 check because OmniVoice stretches very short text.
 
+## Faster renders on NVIDIA GPUs
+
+Set `TONI_OMNI_COMPILE=1` to compile `omni`'s language model with
+`torch.compile`. It only applies on CUDA with Triton installed (ignored on
+Apple Silicon and CPU), costs a one-off warm-up at the start of the render,
+and if compilation or the first compiled run fails, Toni logs a line and
+carries on in eager mode. Exported in your shell, it is forwarded to
+remote renders too.
+
 ## Edits and resume
 
 Every rendered chunk is also stored in `<book>/cache`, keyed by its text, the

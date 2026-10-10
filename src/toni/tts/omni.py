@@ -1,6 +1,7 @@
 """OmniVoice TTS engine implementation."""
 
 import os
+import sys
 from pathlib import Path
 from typing import Callable
 
@@ -27,6 +28,8 @@ class OmniVoiceEngine(TTSEngine):
         TONI_OMNI_NUM_STEP: diffusion steps, default 32 (16 is faster)
         TONI_NORMALIZE:     0 turns off number/abbreviation normalisation, here and in the chunker
         TONI_BATCH:         chunks per model call, 0 = auto
+        TONI_OMNI_COMPILE:  1 compiles the language model with torch.compile on CUDA
+                            with Triton; any failure falls back to eager
         TONI_OMNI_SPEED:    speaking rate factor; below 1.0 gives every chunk more room
     """
 
@@ -35,6 +38,8 @@ class OmniVoiceEngine(TTSEngine):
     def __init__(self):
         self._model = None
         self._prompts: dict[str, object] = {}
+        self._eager_llm = None
+        self._first_compiled_run = False
 
     @property
     def name(self) -> str:
@@ -75,6 +80,33 @@ class OmniVoiceEngine(TTSEngine):
             device_map=device,
             dtype=torch.float32 if device == "cpu" else torch.float16,
         )
+        self._compile_llm()
+
+    def _compile_llm(self) -> None:
+        if os.environ.get("TONI_OMNI_COMPILE") != "1" or self._resolve_device() != "cuda":
+            return
+        try:
+            import torch
+            import triton
+        except ImportError:
+            return
+        self._eager_llm = self._model.llm
+        self._model.llm = torch.compile(self._eager_llm)
+        self._first_compiled_run = True
+
+    def _generate(self, kwargs: dict):
+        if not self._first_compiled_run:
+            return self._model.generate(**kwargs)
+        self._first_compiled_run = False
+        try:
+            return self._model.generate(**kwargs)
+        except Exception as e:
+            print(
+                f"torch.compile failed ({str(e)[:100]}); using eager mode",
+                file=sys.stderr,
+            )
+            self._model.llm = self._eager_llm
+            return self._model.generate(**kwargs)
 
     def _voice_prompt(self, voice_sample: Path):
         key = str(voice_sample)
@@ -132,7 +164,7 @@ class OmniVoiceEngine(TTSEngine):
         else:
             kwargs["instruct"] = os.environ.get("TONI_OMNI_INSTRUCT", DEFAULT_INSTRUCT)
 
-        return [np.asarray(a, dtype=np.float32) for a in self._model.generate(**kwargs)]
+        return [np.asarray(a, dtype=np.float32) for a in self._generate(kwargs)]
 
     def batch_width(self) -> int:
         import torch
