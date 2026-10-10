@@ -15,6 +15,7 @@ export interface RenderOptions {
   language: string;
   model: string;
   seed?: string;
+  batch?: string;
   chapterPattern?: string;
   voiceRef?: string;
   lexicon?: string;
@@ -34,6 +35,7 @@ export function cliArgs(o: RenderOptions, inDir: string, outDir: string): string
   if (o.voiceRef) args.push("-v", `${inDir}/voice_ref.wav`);
   if (o.lexicon) args.push("--lexicon", `${inDir}/lexicon.txt`);
   if (o.seed) args.push("--seed", o.seed);
+  if (o.batch) args.push("--batch", o.batch);
   if (o.chapterPattern) args.push("--chapter-pattern", o.chapterPattern);
   return args;
 }

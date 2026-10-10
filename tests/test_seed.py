@@ -12,14 +12,15 @@ def test_chunk_seed_table() -> None:
 
 @requires_ffmpeg
 def test_same_text_gets_same_rng_regardless_of_position(fake, tmp_path) -> None:
-    work = run_toni(tmp_path, "Same little line.\n\nOther line here.\n\nSame little line.")
-    assert fake.takes[0][0] == fake.takes[2][0]
-    assert fake.takes[0][1] == fake.takes[2][1]
-    assert fake.takes[1][1] != fake.takes[0][1]
+    text = "Same little line.\n\nOther line here.\n\nSame little line."
+    work = run_toni(tmp_path, text)
+    same = [rng for t, rng in fake.takes if t == "Same little line."]
+    other = [rng for t, rng in fake.takes if t == "Other line here."]
+    assert len(same) == 2 and same[0] == same[1]
+    assert other[0] != same[0]
     manifest = work.load_manifest()
     assert manifest.chunks["0"]["seed"] == manifest.chunks["2"]["seed"]
     assert manifest.seed == 0
 
-    first_sample = fake.takes[0][1]
-    run_toni(tmp_path / "again", "Same little line.\n\nOther line here.\n\nSame little line.", "--seed", "5")
-    assert fake.takes[3][1] != first_sample
+    run_toni(tmp_path / "again", text, "--seed", "5")
+    assert [rng for t, rng in fake.takes[3:] if t == "Same little line."][0] != same[0]

@@ -190,6 +190,47 @@ def _process_chunk_recursive(
         return False
 
 
+def _process_batch(
+    work: "WorkManager",
+    engine,
+    ids: list[str],
+    voice_file: Path | None,
+    max_retries: int,
+    verbose: bool,
+) -> None:
+    if len(ids) == 1:
+        _process_chunk_recursive(work, engine, ids[0], voice_file, max_retries, 0, verbose, [])
+        return
+    texts = [work.load_chunk_text(cid) for cid in ids]
+    seed = chunk_seed(work.load_manifest().seed, texts[0], work.get_retries(ids[0]))
+    seed_everything(seed)
+    try:
+        audios = engine.generate_batch(
+            texts,
+            voice_sample=voice_file,
+            **_speed_kwargs(engine, work.get_chunk_speed(ids[0])),
+        )
+    except Exception as e:
+        if verbose:
+            click.echo(f"\nBatch {ids} failed, rendering per chunk: {str(e)[:100]}")
+        for cid in ids:
+            _process_chunk_recursive(work, engine, cid, voice_file, max_retries, 0, verbose, [])
+        return
+    for cid, text, audio in zip(ids, texts, audios):
+        _finish_chunk(work, engine, cid, text, audio, seed)
+
+
+def _batches(work: "WorkManager", pending: list[str], width: int) -> list[list[str]]:
+    by_speed: dict[float | None, list[str]] = {}
+    for cid in pending:
+        by_speed.setdefault(work.get_chunk_speed(cid), []).append(cid)
+    batches = []
+    for ids in by_speed.values():
+        ordered = sorted(ids, key=lambda cid: len(work.load_chunk_text(cid)))
+        batches += [ordered[i : i + width] for i in range(0, len(ordered), width)]
+    return batches
+
+
 def _chunk_marks(chunk) -> dict:
     marks = {}
     if chunk.pause_ms:
@@ -283,6 +324,14 @@ def _chunk_marks(chunk) -> dict:
     help="Base seed; same seed and text give the same audio.",
 )
 @click.option(
+    "--batch",
+    type=int,
+    default=0,
+    envvar="TONI_BATCH",
+    help="Chunks per model call for engines that batch (0 = auto, max 16). "
+    "Batching runs in one process.",
+)
+@click.option(
     "--verbose",
     is_flag=True,
     help="Show detailed progress.",
@@ -301,6 +350,7 @@ def main(
     max_retries: int,
     workers: int | None,
     seed: int,
+    batch: int,
     verbose: bool,
 ) -> None:
     """Generate audiobook from PDF or text file.
@@ -402,31 +452,13 @@ def main(
         voice_file_for_tts = copied_voice
         engine.unload()
 
-    pending_chunks = work.get_pending_chunks()
-    if not pending_chunks:
-        click.echo("No pending chunks to process.")
-    else:
-        click.echo(
-            f"Processing {len(pending_chunks)} chunks with {workers} worker(s)..."
-        )
+    width = min(batch or get_engine(manifest.model).batch_width(), 16)
+    if width > 1 and workers > 1:
+        click.echo("Engine batches in one process; --workers ignored")
 
-        if workers == 1:
-            process_chunks_single(
-                work=work,
-                model=manifest.model,
-                voice_file=voice_file_for_tts,
-                max_retries=max_retries,
-                verbose=verbose,
-            )
-        else:
-            process_chunks_parallel(
-                work=work,
-                model=manifest.model,
-                voice_file=voice_file_for_tts,
-                max_retries=max_retries,
-                workers=workers,
-                verbose=verbose,
-            )
+    render_pending(
+        work, manifest.model, voice_file_for_tts, max_retries, workers, width, verbose
+    )
 
     progress = work.get_progress_summary()
     click.echo(
@@ -484,31 +516,46 @@ def main(
     click.echo(f"Work directory: {work.work_dir}")
 
 
+def render_pending(
+    work: WorkManager,
+    model: str,
+    voice_file: Path | None,
+    max_retries: int,
+    workers: int,
+    width: int,
+    verbose: bool,
+) -> None:
+    pending = work.get_pending_chunks()
+    if not pending:
+        click.echo("No pending chunks to process.")
+        return
+    click.echo(
+        f"Processing {len(pending)} chunks with {workers} worker(s), batch {width}..."
+    )
+    if workers == 1 or width > 1:
+        process_chunks_single(work, model, voice_file, max_retries, verbose, width)
+    else:
+        process_chunks_parallel(work, model, voice_file, max_retries, workers, verbose)
+
+
 def process_chunks_single(
     work: WorkManager,
     model: str,
     voice_file: Path | None,
     max_retries: int,
     verbose: bool,
+    width: int = 1,
 ) -> None:
-    """Process all pending chunks sequentially with a single worker."""
+    """Process pending chunks in one process, `width` chunks per model call."""
     engine = get_engine(model)
     engine.load()
 
     pending = work.get_pending_chunks()
 
-    for chunk_id in tqdm(pending, desc="Processing", unit="chunk"):
-        generated_ids: list[str] = []
-        _process_chunk_recursive(
-            work=work,
-            engine=engine,
-            chunk_id=chunk_id,
-            voice_file=voice_file,
-            max_depth=max_retries,
-            current_depth=0,
-            verbose=verbose,
-            generated_ids=generated_ids,
-        )
+    with tqdm(total=len(pending), desc="Processing", unit="chunk") as bar:
+        for ids in _batches(work, pending, width):
+            _process_batch(work, engine, ids, voice_file, max_retries, verbose)
+            bar.update(len(ids))
 
     engine.unload()
 

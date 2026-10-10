@@ -26,6 +26,7 @@ class OmniVoiceEngine(TTSEngine):
         TONI_OMNI_DEVICE:   cpu / mps / cuda; unset = auto
         TONI_OMNI_NUM_STEP: diffusion steps, default 32 (16 is faster)
         TONI_NORMALIZE:     0 turns off number/abbreviation normalisation, here and in the chunker
+        TONI_BATCH:         chunks per model call, 0 = auto
         TONI_OMNI_SPEED:    speaking rate factor; below 1.0 gives every chunk more room
     """
 
@@ -93,13 +94,29 @@ class OmniVoiceEngine(TTSEngine):
         progress_callback: Callable[[float], None] | None = None,
         speed: float | None = None,
     ) -> np.ndarray:
+        if progress_callback:
+            progress_callback(0.1)
+
+        audio = self.generate_batch([text], voice_sample, speed=speed)[0]
+
+        if progress_callback:
+            progress_callback(1.0)
+
+        return audio
+
+    def generate_batch(
+        self,
+        texts: list[str],
+        voice_sample: Path | None = None,
+        speed: float | None = None,
+    ) -> list[np.ndarray]:
         from omnivoice.models.omnivoice import OmniVoiceGenerationConfig
 
         if self._model is None:
             self.load()
 
         kwargs = {
-            "text": text,
+            "text": texts,
             "language": os.environ.get("TONI_LANGUAGE") or None,
             "generation_config": OmniVoiceGenerationConfig(
                 num_step=int(os.environ.get("TONI_OMNI_NUM_STEP", "32"))
@@ -115,15 +132,15 @@ class OmniVoiceEngine(TTSEngine):
         else:
             kwargs["instruct"] = os.environ.get("TONI_OMNI_INSTRUCT", DEFAULT_INSTRUCT)
 
-        if progress_callback:
-            progress_callback(0.1)
+        return [np.asarray(a, dtype=np.float32) for a in self._model.generate(**kwargs)]
 
-        audio = self._model.generate(**kwargs)
+    def batch_width(self) -> int:
+        import torch
 
-        if progress_callback:
-            progress_callback(1.0)
-
-        return np.asarray(audio[0], dtype=np.float32)
+        if self._resolve_device() != "cuda":
+            return 2
+        free_gb = torch.cuda.mem_get_info()[0] / 2**30
+        return 1 if free_gb < 2 else 2 if free_gb < 6 else 4 if free_gb < 12 else 8
 
     def unload(self) -> None:
         self._model = None

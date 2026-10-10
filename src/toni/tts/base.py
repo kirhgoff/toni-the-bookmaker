@@ -57,6 +57,14 @@ class TTSEngine(ABC):
         """
         pass
 
+    def batch_width(self) -> int:
+        return 1
+
+    def generate_batch(
+        self, texts: list[str], voice_sample: Path | None = None, **kwargs
+    ) -> list[np.ndarray]:
+        return [self.generate(text, voice_sample=voice_sample, **kwargs) for text in texts]
+
     def unload(self) -> None:
         """Unload the model from memory. Optional cleanup."""
         pass

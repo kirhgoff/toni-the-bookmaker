@@ -23,6 +23,8 @@ def seconds_for(text: str) -> float:
 class FakeEngine(TTSEngine):
     def __init__(self):
         self.takes: list[tuple[str, int]] = []
+        self.batches: list[list[str]] = []
+        self.width = 1
         self.fail_texts: set[str] = set()
 
     name = property(lambda self: "fake")
@@ -31,6 +33,9 @@ class FakeEngine(TTSEngine):
 
     def load(self) -> None:
         pass
+
+    def batch_width(self) -> int:
+        return self.width
 
     def _take(self, text: str) -> np.ndarray:
         if text in self.fail_texts:
@@ -42,6 +47,12 @@ class FakeEngine(TTSEngine):
 
     def generate(self, text, voice_sample=None, progress_callback=None):
         return self._take(text)
+
+    def generate_batch(self, texts, voice_sample=None, **kwargs):
+        self.batches.append(list(texts))
+        if any(t in self.fail_texts for t in texts):
+            raise RuntimeError("batch boom")
+        return [self._take(t) for t in texts]
 
 
 @pytest.fixture

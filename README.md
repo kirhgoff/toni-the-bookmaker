@@ -169,6 +169,7 @@ stress-marked.
 | `-l, --language` | en | Language code |
 | `-m, --model` | omni | TTS engine: `omni`, `pocket`, `kani`, `espeech`, or `qwen` |
 | `--seed` | 0 | Base seed; the same seed and text always give the same audio, so a regenerated chunk keeps its delivery |
+| `--batch` / `TONI_BATCH` | auto | `omni` only: chunks per model call (max 16). Batching runs in one process, so `-w` is ignored, and each batch shares one seed (the first chunk's), so a batch is reproducible as a whole |
 | `-H, --host` | none | Render on a remote GPU host instead of locally |
 | `-d, --detach` | off | Run in the background |
 | `-h, --help` | | Show this help |
