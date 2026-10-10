@@ -23,12 +23,12 @@ ABBREVIATIONS = {
 DECIMAL_SEPARATOR = {"en": ".", "ru": ","}
 GROUP_SEPARATOR = r"[ \u00a0\u202f]"
 NUMBER_START = (
-    r"(?<![\w.,:/\-$€£¥])"
+    r"(?<![\w.,:/\-$€£¥₽])"
     rf"(?<!\d{{3}}{GROUP_SEPARATOR})"
     rf"(?!(?<=\d{GROUP_SEPARATOR})\d{{3}}(?!\d))"
 )
 NUMBER_END = (
-    r"(?!\w|%|[.,:/\-]\d)"
+    rf"(?!\w|{GROUP_SEPARATOR}?[%$€£¥₽]|[.,:/\-]\d)"
     rf"(?!(?<=\d{{3}}){GROUP_SEPARATOR}\d)"
     rf"(?!{GROUP_SEPARATOR}\d{{3}}(?!\d))"
 )

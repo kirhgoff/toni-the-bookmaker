@@ -23,7 +23,7 @@ def test_chunk_text_speaks_numbers_and_abbreviations(text, language, expected):
     assert chunk_text(text, language=language) == expected
 
 
-@pytest.mark.parametrize("text", ["1,000 units", "ID A12 and 12B", "code 007", "section 1.2.3", "5-6 or 12:30"])
+@pytest.mark.parametrize("text", ["1,000 units", "ID A12 and 12B", "code 007", "section 1.2.3", "5-6 or 12:30", "5€", "5 $", "50 %", "100₽", "5\u00a0£"])
 def test_ambiguous_tokens_are_left_alone(text):
     assert normalize_speech_text(text, "en") == text
 
@@ -76,3 +76,7 @@ def test_plain_numbers_separated_by_a_space_are_still_spoken():
 
 def test_russian_pronoun_im_is_not_expanded():
     assert normalize_speech_text("Я позвонил им. Они ответили.", "ru") == "Я позвонил им. Они ответили."
+
+
+def test_russian_currency_after_a_number_is_left_alone():
+    assert normalize_speech_text("Это стоит 100₽.", "ru") == "Это стоит 100₽."
