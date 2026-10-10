@@ -134,3 +134,24 @@ export async function prepareCover(explicit: string | undefined, bookDir: string
   if (`${bookDir}/${coverFile}` !== explicit) await copyFile(explicit, `${bookDir}/${coverFile}`);
   return coverFile;
 }
+
+const MIN_WORDS_PER_SECOND = 1.5;
+
+export async function fingerprintOf(path: string): Promise<string> {
+  const bytes = await Bun.file(path).bytes();
+  return `${bytes.length}-${new Bun.CryptoHasher("sha1").update(bytes).digest("hex")}`;
+}
+
+export function needsTranscription(transcriptExists: boolean, storedFingerprint: string | undefined, fingerprint: string): boolean {
+  return !transcriptExists || storedFingerprint?.trim() !== fingerprint;
+}
+
+export function assertPlausibleTranscript(transcript: string, clipSeconds: number): void {
+  const words = transcript.split(/\s+/).filter(Boolean).length;
+  if (words / clipSeconds >= MIN_WORDS_PER_SECOND) return;
+  throw new Error(
+    `Voice sample transcript has ${words} words for ${clipSeconds.toFixed(1)}s of audio ` +
+    `(expected at least ${MIN_WORDS_PER_SECOND}/s). The sample probably has no clear speech; ` +
+    "use a clean recording of one speaker talking continuously, then re-run.",
+  );
+}

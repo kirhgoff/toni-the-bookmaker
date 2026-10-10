@@ -1,10 +1,13 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
-import { mkdir, readdir } from "node:fs/promises";
+import { mkdir, readdir, rm } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
 import { resolvePreset, verifyBook } from "./loudness.ts";
-import { prepareCover, prepareSource, prepareVoiceReference, audioDuration } from "./prep.ts";
+import {
+  assertPlausibleTranscript, audioDuration, fingerprintOf, needsTranscription,
+  prepareCover, prepareSource, prepareVoiceReference,
+} from "./prep.ts";
 import { renderLocal, renderRemote, type RenderOptions } from "./render.ts";
 import { log, requireCommand, run, runOrThrow } from "./shell.ts";
 
@@ -145,17 +148,30 @@ async function main(): Promise<void> {
 
   const voiceRef = `${bookDir}/voice_ref.wav`;
   const refTextPath = `${bookDir}/voice_ref.txt`;
-  if (voice && !(await Bun.file(voiceRef).exists())) {
-    log("Preparing voice reference");
-    await prepareVoiceReference(voice, voiceRef);
-    log("Transcribing reference (once, so render workers never load Whisper)");
-    await runOrThrow([
-      "uv", "run", "--project", PROJECT_DIR, "--extra", "omni",
-      "python", "-m", "toni.transcribe", voiceRef, "-o", refTextPath,
-    ]);
+  const refFingerprintPath = `${bookDir}/voice_ref.fingerprint`;
+  if (voice) {
+    if (await Bun.file(voiceRef).exists()) {
+      log("Voice reference already prepared, reusing");
+    } else {
+      log("Preparing voice reference");
+      await prepareVoiceReference(voice, voiceRef);
+    }
+
+    const fingerprint = await fingerprintOf(voiceRef);
+    const storedFingerprint = (await Bun.file(refFingerprintPath).exists())
+      ? await Bun.file(refFingerprintPath).text()
+      : undefined;
+    if (needsTranscription(await Bun.file(refTextPath).exists(), storedFingerprint, fingerprint)) {
+      log("Transcribing reference (once, so render workers never load Whisper)");
+      await rm(refFingerprintPath, { force: true });
+      await runOrThrow([
+        "uv", "run", "--project", PROJECT_DIR, "--extra", "omni",
+        "python", "-m", "toni.transcribe", voiceRef, "-o", refTextPath,
+      ]);
+      assertPlausibleTranscript(await Bun.file(refTextPath).text(), await audioDuration(voiceRef));
+      await Bun.write(refFingerprintPath, fingerprint);
+    }
     log(`  "${(await Bun.file(refTextPath).text()).slice(0, 60)}..."`);
-  } else if (voice) {
-    log("Voice reference already prepared, reusing");
   }
 
   const coverFile = values.format === "m4b"

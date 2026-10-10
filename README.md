@@ -50,7 +50,7 @@ tag that says what the run was about (`-t`, or by default the engine and where i
 ```
 source.txt                   the cleaned text that was actually read
 voice_ref.wav                 the trimmed voice sample
-voice_ref.txt                 its transcript
+voice_ref.txt                 its transcript (redone whenever voice_ref.wav changes)
 2026-01-15-1430-omni-local/   one run
   book.m4b                 the finished audiobook, with chapters
   render.log               progress and any errors
