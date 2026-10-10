@@ -16,7 +16,11 @@ export function stripBoilerplate(raw: string): { text: string; stripped: number 
   return { text: `${body}\n`, stripped: raw.length - body.length };
 }
 
-export async function prepareSource(input: string, dest: string): Promise<void> {
+export async function prepareSource(input: string, dest: string, projectDir: string): Promise<void> {
+  if (extname(input).toLowerCase() === ".epub") {
+    await runOrThrow(["uv", "run", "--project", projectDir, "python", "-m", "toni.text_extractor", input, "-o", dest]);
+    return;
+  }
   const raw = await Bun.file(input).text();
   const { text, stripped } = stripBoilerplate(raw);
   if (stripped > 200) log(`  stripped ${stripped} chars of Project Gutenberg boilerplate`);

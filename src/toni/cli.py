@@ -160,7 +160,7 @@ def _process_chunk_recursive(
     "input_file",
     type=click.Path(exists=True, path_type=Path),
     required=True,
-    help="Input PDF or text file.",
+    help="Input PDF, EPUB or text file.",
 )
 @click.option(
     "-o",

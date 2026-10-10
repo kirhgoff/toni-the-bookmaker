@@ -1,6 +1,6 @@
 # Toni the Book Maker
 
-Toni turns a text file or PDF into an audiobook. Feed it a book, optionally a
+Toni turns a text file, PDF or EPUB into an audiobook. Feed it a book, optionally a
 short sample of a voice, and it reads the whole thing out loud, cuts it into
 chapters, and hands you back one finished audio file.
 
@@ -109,7 +109,7 @@ stress-marked.
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `-i, --input` | required | Source `.txt` or `.pdf` |
+| `-i, --input` | required | Source `.txt`, `.pdf` or `.epub` (spine order; cover, contents and copyright pages skipped; chapter titles become chapters) |
 | `-v, --voice` | none | Voice sample to clone |
 | `-n, --name` | input filename | Output folder name |
 | `-t, --tag` | engine and host | Suffix for the run folder, e.g. `-t first-try` |

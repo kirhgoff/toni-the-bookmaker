@@ -8,11 +8,11 @@ import { prepareCover, prepareSource, prepareVoiceReference, audioDuration } fro
 import { renderLocal, renderRemote, type RenderOptions } from "./render.ts";
 import { log, requireCommand, run, runOrThrow } from "./shell.ts";
 
-const USAGE = `Record an audiobook from a text or PDF file.
+const USAGE = `Record an audiobook from a text, PDF or EPUB file.
 
   toni-record -i INPUT [-v VOICE] [options]
 
-  -i, --input INPUT     Source .txt or .pdf (required)
+  -i, --input INPUT     Source .txt, .pdf or .epub (required)
   -v, --voice VOICE     Voice sample to clone. Omit for a designed voice.
   -n, --name NAME       Output folder name (default: input filename stem)
   -t, --tag TAG         Run folder suffix explaining the run (default: <model>-<host or local>)
@@ -140,7 +140,7 @@ async function main(): Promise<void> {
     log("Source already prepared, reusing");
   } else {
     log("Preparing text");
-    await prepareSource(input, source);
+    await prepareSource(input, source, PROJECT_DIR);
   }
 
   const voiceRef = `${bookDir}/voice_ref.wav`;
