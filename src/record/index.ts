@@ -15,7 +15,7 @@ const USAGE = `Record an audiobook from a text or PDF file.
 
   -i, --input INPUT     Source .txt or .pdf (required)
   -v, --voice VOICE     Voice sample to clone. Omit for a narrator designed once and reused (omni: en, ru).
-  --redesign-voice      Prepare the voice reference again (a new designed narrator, or a fresh clone of -v)
+  --redesign-voice      Prepare the voice reference again (a fresh clone of -v, or the designed narrator for the current --voice-seed)
   -n, --name NAME       Output folder name (default: input filename stem)
   -t, --tag TAG         Run folder suffix explaining the run (default: <model>-<host or local>)
   -o, --output-dir DIR  Library folder that holds all books (default: $AUDIOBOOK_LIBRARY or ~/Downloads/audiobooks)
@@ -29,6 +29,7 @@ const USAGE = `Record an audiobook from a text or PDF file.
   --no-qc               Skip the ASR check that regenerates garbled or skipped chunks
   --batch N             Chunks per model call for omni (default: auto)
   --seed N              Base seed; same seed and text give the same audio (default: 0)
+  --voice-seed N        Seed of the designed narrator; change it to draw a different voice (default: 0)
   -H, --host HOST       Render on a remote GPU host instead of locally
   -d, --detach          Run in the background, surviving terminal and sleep
   -h, --help            This help
@@ -96,6 +97,7 @@ async function main(): Promise<void> {
       language: { type: "string", short: "l", default: "en" },
       model: { type: "string", short: "m", default: "omni" },
       seed: { type: "string" },
+      "voice-seed": { type: "string", default: "0" },
       "redesign-voice": { type: "boolean", default: false },
       batch: { type: "string" },
       "no-qc": { type: "boolean", default: false },
@@ -155,7 +157,7 @@ async function main(): Promise<void> {
     ...(voice ? { voiceSha1: sha1Hex(new Uint8Array(await Bun.file(voice).arrayBuffer())) } : {}),
     model: values.model!,
     language: values.language!,
-    seed: values.seed ?? "0",
+    seed: values["voice-seed"]!,
     instruct: process.env.TONI_OMNI_INSTRUCT ?? "",
     refExists: await Bun.file(voiceRef).exists(),
     redesign: values["redesign-voice"],
@@ -170,7 +172,7 @@ async function main(): Promise<void> {
     await runOrThrow([
       "uv", "run", "--project", PROJECT_DIR, "--extra", "omni",
       "python", "-m", "toni.design_voice", "--out", voiceRef, "--text-out", refTextPath,
-      "--language", values.language!, "--seed", values.seed ?? "0",
+      "--language", values.language!, "--seed", values["voice-seed"]!,
     ]);
     log(`Designed narrator voice: listen to ${voiceRef} before the render finishes`);
   } else if (plan === "clone") {

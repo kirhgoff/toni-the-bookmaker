@@ -88,7 +88,7 @@ before rendering: it speaks one fixed sentence from the voice description
 drifts. The log prints the path so you can listen before the long render
 finishes. Its provenance is stored next to it in `<book>/voice_ref.source`: re-runs
 reuse it while the request is unchanged, and a later `-v` sample, a different
-`--seed`, or a changed description or language prepares a fresh reference (and
+`--voice-seed`, or a changed description or language prepares a fresh reference (and
 a `-v` sample you drop again goes back to a designed narrator).
 `--redesign-voice` forces a new one. Other engines and languages synthesize
 from the description per chunk, so the voice can shift — pass a sample.
@@ -177,8 +177,9 @@ stress-marked.
 | `-l, --language` | en | Language code |
 | `-m, --model` | omni | TTS engine: `omni`, `pocket`, `kani`, `espeech`, or `qwen` |
 | `--seed` | 0 | Base seed; the same seed and text give the same audio, so a regenerated chunk keeps its delivery. When chunks are batched, a chunk's take also depends on its batch partners; use `--batch 1` for per-chunk reproducibility |
+| `--voice-seed` | 0 | Seed of the designed narrator (`omni`, no `-v`); `--seed` only changes the takes |
 | `--batch` / `TONI_BATCH` | auto | `omni` only: chunks per model call (max 16). Batching runs in one process, so `-w` is ignored, and each batch shares one seed (the first chunk's), so a batch is reproducible as a whole, not per chunk |
-| `--redesign-voice` | off | Prepare the voice reference again: a new designed narrator, or a fresh clone of `-v` |
+| `--redesign-voice` | off | Prepare the voice reference again: a fresh clone of `-v`, or the designed narrator for the current `--voice-seed` |
 | `--no-qc` | QC on | Skip the quality check (see [Quality check](#quality-check)) |
 | `-H, --host` | none | Render on a remote GPU host instead of locally |
 | `-d, --detach` | off | Run in the background |
