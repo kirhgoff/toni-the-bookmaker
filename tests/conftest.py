@@ -37,6 +37,7 @@ class FakeEngine(TTSEngine):
         self.say = lambda text: text
         self.drop_last_audio = False
 
+    supports_batching = True
     name = property(lambda self: "fake")
     sample_rate = property(lambda self: SR)
     max_chunk_chars = property(lambda self: 40)

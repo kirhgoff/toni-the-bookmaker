@@ -735,7 +735,7 @@ def process_chunks_single(
 ) -> None:
     engine = get_engine(model)
     engine.load()
-    width = min(batch or engine.batch_width(), MAX_BATCH)
+    width = min(batch or engine.batch_width(), MAX_BATCH) if engine.supports_batching else 1
     click.echo(f"Batch width {width}")
 
     pending = work.get_pending_chunks()

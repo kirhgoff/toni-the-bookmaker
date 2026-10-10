@@ -69,3 +69,13 @@ def test_negative_batch_is_rejected(fake, tmp_path) -> None:
     (tmp_path / "b.txt").write_text("Hello there.")
     result = CliRunner().invoke(main, ["-i", str(tmp_path / "b.txt"), "--batch", "-1"])
     assert result.exit_code == 2 and "--batch" in result.output
+
+
+@requires_ffmpeg
+def test_engines_without_batching_render_one_chunk_per_call(fake, tmp_path) -> None:
+    fake.supports_batching = False
+    fake.width = 2
+    run_toni(tmp_path, TEXT, "--batch", "4")
+    assert fake.batches == []
+    assert len(fake.takes) == 5
+    assert len({rng for _, rng in fake.takes}) == 5
