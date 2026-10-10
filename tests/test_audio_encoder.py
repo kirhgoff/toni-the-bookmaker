@@ -95,6 +95,20 @@ def test_titles_only_match_a_chunk_that_opens_with_the_next_expected_title(tmp_p
     assert [start for start, _ in chapters] == [500, 1000]
 
 
+def test_a_title_absent_from_the_text_does_not_block_later_chapters(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 100) for i in range(3)]
+    chapters, _ = build_chapters(paths, ["One", "body", "Three"], pause_ms=400, titles=["One", "Two", "Three"])
+    assert chapters == [(0, "One"), (1000, "Three")]
+
+
+def test_a_heading_split_by_the_chunker_still_starts_its_chapter(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 100) for i in range(3)]
+    texts = ["The Very Long Title.", "And the subtitle goes on.", "body"]
+    title = "The Very Long Title. And the subtitle goes on."
+    chapters, _ = build_chapters(paths, texts, pause_ms=400, titles=[title])
+    assert chapters == [(0, title)]
+
+
 SR = 24000
 
 

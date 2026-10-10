@@ -130,6 +130,14 @@ def wav_duration_ms(path: Path) -> int:
         return round(wf.getnframes() / wf.getframerate() * 1000)
 
 
+def first_line(text: str | None) -> str:
+    return " ".join((text or "").strip().split("\n")[0].split())
+
+
+def opens_with(line: str, title: str) -> bool:
+    return bool(line) and (line == title or title.startswith(line + " "))
+
+
 def build_chapters(
     audio_paths: list[Path],
     chunk_texts: list[str],
@@ -141,8 +149,9 @@ def build_chapters(
 ) -> tuple[list[tuple[int, str]], int]:
     """Locate chapter starts by timing the chunks whose text is a heading.
 
-    With titles, chunks opening with the next expected title start a chapter,
-    in order, and the pattern is not used.
+    With titles, each title in order starts at the first later chunk that opens
+    with it (or with the leading part of it a chunker split off); a title that
+    never appears is skipped. The pattern is not used.
 
     Offsets come from actual WAV durations rather than estimates, so they
     stay correct even when a chunk was split and re-rendered.
@@ -154,23 +163,32 @@ def build_chapters(
     ends = paragraph_ends or [False] * len(audio_paths)
     if paragraph_pause_ms is None:
         paragraph_pause_ms = pause_ms
-    chapters: list[tuple[int, str]] = []
+    starts: list[int] = []
     offset = 0
-    expected = 0
-
     for index, (audio_path, text) in enumerate(zip(audio_paths, chunk_texts)):
-        ends_paragraph = ends[index]
-        title = " ".join((text or "").strip().split("\n")[0].split())
-        if titles is not None:
-            if expected < len(titles) and title == titles[expected]:
-                chapters.append((offset, title[:120]))
-                expected += 1
-        elif title and len(title) <= MAX_HEADING_CHARS and heading.match(title):
-            if not chapters or chapters[-1][1] != title[:120]:
-                chapters.append((offset, title[:120]))
+        starts.append(offset)
         offset += wav_duration_ms(audio_path)
         if index < len(audio_paths) - 1:
-            offset += gap_after(text, ends_paragraph, pause_ms, paragraph_pause_ms)
+            offset += gap_after(text, ends[index], pause_ms, paragraph_pause_ms)
+    first_lines = [first_line(text) for text in chunk_texts]
+
+    chapters: list[tuple[int, str]] = []
+    if titles is not None:
+        position = 0
+        for title in titles:
+            index = next(
+                (i for i in range(position, len(first_lines)) if opens_with(first_lines[i], title)),
+                None,
+            )
+            if index is None:
+                continue
+            chapters.append((starts[index], title[:120]))
+            position = index + 1
+    else:
+        for start, line in zip(starts, first_lines):
+            if line and len(line) <= MAX_HEADING_CHARS and heading.match(line):
+                if not chapters or chapters[-1][1] != line[:120]:
+                    chapters.append((start, line[:120]))
 
     return chapters, offset
 
