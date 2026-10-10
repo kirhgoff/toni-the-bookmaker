@@ -174,10 +174,6 @@ export async function fingerprintOf(path: string): Promise<string> {
   return `${bytes.length}-${new Bun.CryptoHasher("sha1").update(bytes).digest("hex")}`;
 }
 
-export function voiceSource(bytes: Uint8Array): string {
-  return `sample:${new Bun.CryptoHasher("sha1").update(bytes).digest("hex")}`;
-}
-
 export function needsRegeneration(artifactExists: boolean, storedFingerprint: string | undefined, fingerprint: string): boolean {
   return !artifactExists || storedFingerprint?.trim() !== fingerprint;
 }

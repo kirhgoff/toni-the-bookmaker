@@ -5,28 +5,57 @@ OmniVoice pulls Whisper large-v3-turbo (~1.6GB) into every process that
 clones a voice without a supplied transcript.
 """
 
+import os
 import sys
 from pathlib import Path
+from typing import Callable
 
 import click
+import numpy as np
 import soundfile as sf
+
+
+def load_transcriber(device: str | None = None) -> Callable[[np.ndarray, int], str]:
+    import torch
+    from transformers import pipeline
+    from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
+
+    from toni.text_normalization import base_language
+
+    if device is None:
+        device = (
+            "mps" if torch.backends.mps.is_available()
+            else "cuda" if torch.cuda.is_available()
+            else "cpu"
+        )
+    asr = pipeline(
+        "automatic-speech-recognition",
+        model="openai/whisper-large-v3-turbo",
+        device=device,
+        torch_dtype=torch.float32 if device == "cpu" else torch.float16,
+    )
+    language = base_language(os.environ.get("TONI_LANGUAGE"))
+    generate_kwargs = (
+        {"language": language, "task": "transcribe"} if language in TO_LANGUAGE_CODE.values() else {}
+    )
+
+    def transcribe(waveform: np.ndarray, sample_rate: int) -> str:
+        return asr(
+            {"raw": waveform, "sampling_rate": sample_rate},
+            return_timestamps=len(waveform) > 30 * sample_rate,
+            generate_kwargs=generate_kwargs,
+        )["text"].strip()
+
+    return transcribe
 
 
 def transcribe_reference(audio_path: Path, device: str = "cpu") -> str:
     """Return the transcript of a reference clip."""
-    import torch
-    from omnivoice import OmniVoice
-
-    model = OmniVoice.from_pretrained(
-        "k2-fsa/OmniVoice",
-        device_map=device,
-        dtype=torch.float32 if device == "cpu" else torch.float16,
-    )
-    model.load_asr_model()
+    transcriber = load_transcriber(device)
     waveform, sample_rate = sf.read(audio_path, dtype="float32")
     if waveform.ndim > 1:
         waveform = waveform.mean(axis=1)
-    return model.transcribe((waveform, sample_rate)).strip()
+    return transcriber(waveform, sample_rate)
 
 
 @click.command()
@@ -39,7 +68,7 @@ def main(audio: Path, output: Path | None, device: str) -> None:
     try:
         text = transcribe_reference(audio, device)
     except ImportError:
-        raise SystemExit("omnivoice is not installed. Install it with: uv sync --extra omni")
+        raise SystemExit("transformers is not installed. Install an engine extra, e.g.: uv sync --extra omni")
 
     if output:
         output.write_text(text, encoding="utf-8")

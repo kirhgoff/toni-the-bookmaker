@@ -31,6 +31,9 @@ class TTSEngine(ABC):
         """Return the maximum recommended characters per chunk."""
         pass
 
+    supports_speed = False
+    supports_batching = False
+
     @abstractmethod
     def load(self) -> None:
         """Load the model into memory. Called once before generation."""
@@ -54,6 +57,14 @@ class TTSEngine(ABC):
             Audio data as a 1D numpy array of float32 samples.
         """
         pass
+
+    def batch_width(self) -> int:
+        return 1
+
+    def generate_batch(
+        self, texts: list[str], voice_sample: Path | None = None, **kwargs
+    ) -> list[np.ndarray]:
+        return [self.generate(text, voice_sample=voice_sample, **kwargs) for text in texts]
 
     def unload(self) -> None:
         """Unload the model from memory. Optional cleanup."""

@@ -3,10 +3,11 @@ import { parseArgs } from "node:util";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
+import { isSampleReference, narratorPlan, requestedSource, seedsFrom, sha1Hex, type NarratorInput } from "./narrator.ts";
 import { resolvePreset, verifyBook } from "./loudness.ts";
 import {
   assertPlausibleTranscript, CHAPTER_TITLES_FILE, audioDuration, discardVoiceReference, fingerprintOf, needsRegeneration,
-  prepareCover, prepareSource, prepareVoiceReference, voiceSource,
+  prepareCover, prepareSource, prepareVoiceReference,
 } from "./prep.ts";
 import { renderLocal, renderRemote, type RenderOptions } from "./render.ts";
 import { log, requireCommand, run, runOrThrow } from "./shell.ts";
@@ -16,7 +17,8 @@ const USAGE = `Record an audiobook from a text, PDF or EPUB file.
   toni-record -i INPUT [-v VOICE] [options]
 
   -i, --input INPUT     Source .txt, .pdf or .epub (required)
-  -v, --voice VOICE     Voice sample to clone. Omit for a designed voice.
+  -v, --voice VOICE     Voice sample to clone. Omit for a narrator designed once and reused (omni: en, ru).
+  --redesign-voice      Prepare the voice reference again (a fresh clone of -v, or the designed narrator for the current --voice-seed)
   -n, --name NAME       Output folder name (default: input filename stem)
   -t, --tag TAG         Run folder suffix explaining the run (default: <model>-<host or local>)
   -o, --output-dir DIR  Library folder that holds all books (default: $AUDIOBOOK_LIBRARY or ~/Downloads/audiobooks)
@@ -29,13 +31,19 @@ const USAGE = `Record an audiobook from a text, PDF or EPUB file.
   -c, --chapters REGEX  Chapter heading pattern
   -l, --language LANG   Language code (default: en)
   -m, --model MODEL     TTS engine: omni (default), pocket, kani, espeech, qwen
+  --no-qc               Skip the ASR check that regenerates garbled or skipped chunks
+  --batch N             Chunks per model call for omni (default: auto)
+  --seed N              Base seed; same seed and text give the same audio (default: 0)
+  --voice-seed N        Seed of the designed narrator; change it to draw a different voice (default: 0)
   -H, --host HOST       Render on a remote GPU host instead of locally
   -d, --detach          Run in the background, surviving terminal and sleep
   -h, --help            This help
 
 Inputs live in <output-dir>/<name>/; each render gets its own
 <output-dir>/<name>/<YYYY-MM-DD-HHMM>/ run folder.
-Re-running the same command resumes an unfinished run; a different -v starts a new one.`;
+Re-running the same command resumes an unfinished run; a different -v starts a new one.
+An optional <output-dir>/<name>/lexicon.txt ("term = respelling" per line,
+# comments) corrects pronunciation across the whole book.`;
 
 const PROJECT_DIR = resolve(import.meta.dir, "../..");
 
@@ -124,6 +132,11 @@ async function main(): Promise<void> {
       loudness: { type: "string", default: "default" },
       language: { type: "string", short: "l", default: "en" },
       model: { type: "string", short: "m", default: "omni" },
+      seed: { type: "string" },
+      "voice-seed": { type: "string" },
+      "redesign-voice": { type: "boolean", default: false },
+      batch: { type: "string" },
+      "no-qc": { type: "boolean", default: false },
       host: { type: "string", short: "H" },
       detach: { type: "boolean", short: "d", default: false },
       help: { type: "boolean", short: "h", default: false },
@@ -152,7 +165,22 @@ async function main(): Promise<void> {
   await mkdir(bookDir, { recursive: true });
 
   const tag = (values.tag ?? `${values.model}-${values.host ?? "local"}`).replace(/[^\w.-]+/g, "-");
-  const source = voice ? voiceSource(await Bun.file(voice).bytes()) : "none";
+  const voiceRef = `${bookDir}/voice_ref.wav`;
+  const refTextPath = `${bookDir}/voice_ref.txt`;
+  const refFingerprintPath = `${bookDir}/voice_ref.fingerprint`;
+  const refSourcePath = `${bookDir}/voice_ref.source`;
+  const { designSeed, renderSeed } = seedsFrom(values);
+  const narrator: NarratorInput = {
+    ...(voice ? { voiceSha1: sha1Hex(await Bun.file(voice).bytes()) } : {}),
+    model: values.model!,
+    language: values.language!,
+    seed: designSeed,
+    instruct: process.env.TONI_OMNI_INSTRUCT ?? "",
+    refExists: await Bun.file(voiceRef).exists(),
+    redesign: values["redesign-voice"],
+    ...((await Bun.file(refSourcePath).exists()) ? { storedSource: (await Bun.file(refSourcePath).text()).trim() } : {}),
+  };
+  const source = requestedSource(narrator) ?? "none";
   const runDir = await pickRunDir(bookDir, name, values.format!, tag, source);
   await mkdir(runDir, { recursive: true });
   await Bun.write(`${runDir}/voice_ref.source`, source);
@@ -185,21 +213,26 @@ async function main(): Promise<void> {
     ? CHAPTER_TITLES_FILE
     : undefined;
 
-  const voiceRef = `${bookDir}/voice_ref.wav`;
-  const refTextPath = `${bookDir}/voice_ref.txt`;
-  const refFingerprintPath = `${bookDir}/voice_ref.fingerprint`;
-  const refSourcePath = `${bookDir}/voice_ref.source`;
-  const storedText = async (path: string) => (await Bun.file(path).exists()) ? await Bun.file(path).text() : undefined;
-  if (voice) {
-    if (needsRegeneration(await Bun.file(voiceRef).exists(), await storedText(refSourcePath), source)) {
-      log("Preparing voice reference");
-      await discardVoiceReference(bookDir);
-      await prepareVoiceReference(voice, voiceRef);
-      await Bun.write(refSourcePath, source);
-    } else {
-      log("Voice reference already prepared, reusing");
-    }
-
+  const plan = narratorPlan(narrator);
+  if (plan === "design" || plan === "clone") {
+    await Promise.all([voiceRef, refTextPath, refSourcePath, refFingerprintPath].map((path) => rm(path, { force: true })));
+  }
+  if (plan === "design") {
+    log("Designing narrator voice (once, so the voice never drifts)");
+    await runOrThrow([
+      "uv", "run", "--project", PROJECT_DIR, "--extra", "omni",
+      "python", "-m", "toni.design_voice", "--out", voiceRef, "--text-out", refTextPath,
+      "--language", values.language!, "--seed", designSeed,
+    ]);
+    log(`Designed narrator voice: listen to ${voiceRef} before the render finishes`);
+  } else if (plan === "clone") {
+    log("Preparing voice reference");
+    await prepareVoiceReference(voice!, voiceRef);
+  } else if (plan === "reuse") {
+    log("Voice reference already prepared, reusing");
+  }
+  if (isSampleReference(narrator)) {
+    const storedText = async (path: string) => (await Bun.file(path).exists()) ? await Bun.file(path).text() : undefined;
     const fingerprint = await fingerprintOf(voiceRef);
     if (needsRegeneration(await Bun.file(refTextPath).exists(), await storedText(refFingerprintPath), fingerprint)) {
       log("Transcribing reference (once, so render workers never load Whisper)");
@@ -215,9 +248,12 @@ async function main(): Promise<void> {
         throw error;
       }
       await Bun.write(refFingerprintPath, fingerprint);
+      log(`  "${(await Bun.file(refTextPath).text()).slice(0, 60)}..."`);
     }
-    log(`  "${(await Bun.file(refTextPath).text()).slice(0, 60)}..."`);
   }
+  if (plan === "design" || plan === "clone") await Bun.write(refSourcePath, source);
+
+  const lexicon = `${bookDir}/lexicon.txt`;
 
   const options: RenderOptions = {
     projectDir: PROJECT_DIR,
@@ -230,10 +266,14 @@ async function main(): Promise<void> {
     workers: Number.parseInt(values.workers!, 10),
     language: values.language!,
     model: values.model!,
+    ...(renderSeed ? { seed: renderSeed } : {}),
+    ...(values.batch ? { batch: values.batch } : {}),
+    qc: !values["no-qc"],
     ...(values.chapters ? { chapterPattern: values.chapters } : {}),
     ...(coverFile ? { coverFile } : {}),
     ...(chapterTitlesFile ? { chapterTitlesFile } : {}),
-    ...(voice ? { voiceRef } : {}),
+    ...(plan !== "none" ? { voiceRef } : {}),
+    ...((await Bun.file(lexicon).exists()) ? { lexicon } : {}),
     ...((await Bun.file(refTextPath).exists())
       ? { refText: await Bun.file(refTextPath).text() }
       : {}),

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from conftest import requires_ffmpeg, run_toni
 
 from toni.audio_encoder import (
     build_chapters,
@@ -14,6 +15,7 @@ from toni.audio_encoder import (
     gap_after,
     pause_after,
     trim_edges,
+    wav_duration_ms,
 )
 
 
@@ -265,3 +267,41 @@ def test_cli_rejects_a_cover_that_is_not_jpg_png_or_too_large(tmp_path):
         result = runner.invoke(main, ["--cover", str(cover), "-i", str(missing_input)])
         assert result.exit_code == 2
         assert message in result.output
+
+
+def test_build_chapters_offsets_include_extra_pauses(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 1000) for i in range(3)]
+    texts = ["CHAPTER 1.", "Middle.", "CHAPTER 2."]
+    chapters, total = build_chapters(paths, texts, pause_ms=400, extra_pauses_ms=[0, 800, 0])
+    assert [start for start, _ in chapters] == [0, 2000 + 400 + 800 + 400]
+    assert total == 3000 + 400 + 400 + 800
+
+
+def test_build_chapters_match_headings_on_pre_normalisation_text(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 1000) for i in range(2)]
+    spoken = ["Глава двенадцать", "Текст."]
+    raw = ["Глава 12", "Текст."]
+    chapters, _ = build_chapters(paths, spoken, 400, r"^Глава \d+", heading_texts=raw)
+    assert chapters == [(0, "Глава 12")]
+    assert build_chapters(paths, spoken, 400, r"^Глава \d+")[0] == []
+
+
+@requires_ffmpeg
+def test_cli_chapter_offset_matches_concat_gaps_for_paragraph_ends_and_pause_tags(fake, tmp_path):
+
+    text = "CHAPTER 1\n\nHello there. [pause 2s] More text here.\n\nCHAPTER 2\n\nThe end."
+    work = run_toni(tmp_path, text, "--chunk-pause", "500", output="book.m4b")
+
+    ids = work.get_all_audio_chunks_ordered()
+    durations = [wav_duration_ms(work.get_chunk_audio_path(cid)) for cid in ids]
+    texts = [work.load_chunk_text(cid) for cid in ids]
+    assert texts == ["CHAPTER 1", "Hello there.", "More text here.", "CHAPTER 2", "The end."]
+    gaps_after = [1000, 500 + 2000, 1000, 1000]
+    second_chapter_ms = sum(durations[:3]) + sum(gaps_after[:3])
+
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_chapters", "-of", "json", str(tmp_path / "book.m4b")],
+        capture_output=True, text=True, check=True,
+    )
+    starts = [round(float(c["start_time"]) * 1000) for c in json.loads(probe.stdout)["chapters"]]
+    assert starts == [0, pytest.approx(second_chapter_ms, abs=5)]

@@ -1,6 +1,7 @@
 """Audio encoding and concatenation utilities."""
 
 import contextlib
+import os
 import re
 import subprocess
 import wave
@@ -155,6 +156,8 @@ def build_chapters(
     paragraph_ends: list[bool] | None = None,
     paragraph_pause_ms: int | None = None,
     titles: list[str] | None = None,
+    extra_pauses_ms: list[int] | None = None,
+    heading_texts: list[str] | None = None,
 ) -> tuple[list[tuple[int, str]], int]:
     """Locate chapter starts by timing the chunks whose text is a heading.
 
@@ -174,12 +177,14 @@ def build_chapters(
         paragraph_pause_ms = pause_ms
     starts: list[int] = []
     offset = 0
+    extras = extra_pauses_ms or [0] * len(audio_paths)
+    headings = heading_texts or chunk_texts
     for index, (audio_path, text) in enumerate(zip(audio_paths, chunk_texts)):
         starts.append(offset)
         offset += wav_duration_ms(audio_path)
         if index < len(audio_paths) - 1:
-            offset += gap_after(text, ends[index], pause_ms, paragraph_pause_ms)
-    first_lines = [first_line(text) for text in chunk_texts]
+            offset += gap_after(text, ends[index], pause_ms, paragraph_pause_ms) + extras[index]
+    first_lines = [first_line(text) for text in headings]
 
     chapters: list[tuple[int, str]] = []
     if titles is not None:
@@ -235,6 +240,8 @@ def concatenate_with_ffmpeg(
     paragraph_pause_ms: int | None = None,
     cover_path: Path | None = None,
     chapter_titles: list[str] | None = None,
+    extra_pauses_ms: list[int] | None = None,
+    heading_texts: list[str] | None = None,
 ) -> int:
     """Concatenate WAV files using ffmpeg concat demuxer and encode to MP3.
 
@@ -255,6 +262,9 @@ def concatenate_with_ffmpeg(
         paragraph_pause_ms: Pause after a paragraph; defaults to 2x pause_ms.
         cover_path: JPEG/PNG embedded as cover art; .m4b outputs only.
         chapter_titles: Ordered chapter titles that replace the heading pattern.
+        extra_pauses_ms: Additional silence after each chunk (from [pause] tags).
+        heading_texts: Pre-normalisation chunk texts to match chapter headings
+            against; defaults to chunk_texts.
 
     Returns:
         Number of chapters embedded.
@@ -289,6 +299,7 @@ def concatenate_with_ffmpeg(
             if i < len(audio_paths) - 1:
                 text = chunk_texts[i] if chunk_texts else None
                 gap = gap_after(text, ends[i], pause_ms, paragraph_pause_ms)
+                gap += extra_pauses_ms[i] if extra_pauses_ms else 0
                 f.write(concat_entry(silence_for(gap)))
 
     wants_chapters = output_path.suffix.lower() in CHAPTERED_FORMATS
@@ -302,6 +313,8 @@ def concatenate_with_ffmpeg(
             ends,
             paragraph_pause_ms,
             chapter_titles,
+            extra_pauses_ms,
+            heading_texts,
         )
 
     cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list_path)]
@@ -384,11 +397,22 @@ def save_chunk_wav(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     audio_int16 = (trim_edges(audio, sample_rate) * 32767).astype(np.int16)
 
-    with wave.open(str(output_path), "wb") as wav_file:
+    tmp_path = output_path.with_name(output_path.name + ".tmp")
+    with wave.open(str(tmp_path), "wb") as wav_file:
         wav_file.setnchannels(1)
         wav_file.setsampwidth(2)
         wav_file.setframerate(sample_rate)
         wav_file.writeframes(audio_int16.tobytes())
+    os.replace(tmp_path, output_path)
+
+
+def wav_is_valid(path: Path) -> bool:
+    try:
+        with contextlib.closing(wave.open(str(path), "rb")) as wf:
+            frames, width, channels = wf.getnframes(), wf.getsampwidth(), wf.getnchannels()
+    except (OSError, EOFError, wave.Error):
+        return False
+    return frames > 0 and path.stat().st_size >= 44 + frames * width * channels
 
 
 def load_chunk_wav(input_path: Path) -> np.ndarray:

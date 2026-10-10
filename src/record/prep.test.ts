@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { assertPlausibleTranscript, countWords, discardVoiceReference, fingerprintOf, needsRegeneration, prepareCover, voiceSource } from "./prep.ts";
+import { assertPlausibleTranscript, countWords, discardVoiceReference, fingerprintOf, needsRegeneration, prepareCover } from "./prep.ts";
 
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -70,10 +70,6 @@ test("a failed voice reference is discarded entirely so the next run starts clea
   expect(await Bun.file(join(dir, "voice_ref.fingerprint")).exists()).toBe(false);
   expect(await Bun.file(join(dir, "voice_ref.source")).exists()).toBe(false);
   expect(await Bun.file(join(dir, "source.txt")).exists()).toBe(true);
-});
-
-test("the -v sample is recorded as sample:<sha1 of its bytes>", () => {
-  expect(voiceSource(new TextEncoder().encode("abc"))).toBe("sample:a9993e364706816aba3e25717850c26c9cd0d89d");
 });
 
 test("fingerprint changes with the clip contents", async () => {

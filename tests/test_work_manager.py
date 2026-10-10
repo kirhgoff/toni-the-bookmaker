@@ -78,3 +78,42 @@ def test_paragraph_ends_loads_the_manifest_once(tmp_path: Path, monkeypatch) -> 
 
     assert work.paragraph_ends(["0_0", "0_1", "1"]) == [False, True, False]
     assert len(loads) == 1
+def _work_with_chunks(tmp_path: Path, total: int) -> WorkManager:
+    work = WorkManager(tmp_path / "book.mp3", work_base=tmp_path / "work")
+    work.setup()
+    work.init_manifest(input_file=Path("in.txt"), output_file=Path("book.mp3"),
+                       model="omni", voice_file=None, sample_rate=8000,
+                       chunk_pause_ms=0, total_chunks=total)
+    return work
+
+
+def test_truncated_wav_is_reset_to_pending(tmp_path: Path) -> None:
+    import numpy as np
+
+    from toni.audio_encoder import save_chunk_wav
+
+    work = _work_with_chunks(tmp_path, 2)
+    good = work.get_chunk_audio_path("0")
+    save_chunk_wav(np.full(4000, 0.1, dtype=np.float32), 8000, good)
+    work.get_chunk_audio_path("1").write_bytes(good.read_bytes()[:-500])
+    work.set_chunk_status("0", "completed")
+    work.set_chunk_status("1", "completed")
+
+    assert work.reset_invalid_audio() == ["1"]
+    assert work.get_pending_chunks() == ["1"]
+
+
+def test_old_manifest_loads(tmp_path: Path) -> None:
+    import json
+
+    work = _work_with_chunks(tmp_path, 1)
+    data = json.loads(work.manifest_path.read_text())
+    for field in ("seed", "fingerprint", "cache_dir"):
+        del data[field]
+    data["version"] = "1.1"
+    work.manifest_path.write_text(json.dumps(data))
+
+    manifest = work.load_manifest()
+    assert manifest.seed == 0 and manifest.fingerprint == ""
+    assert work.cache_path("0", "x") is None
+    assert len(work.chunk_key("0", "x")) == 40

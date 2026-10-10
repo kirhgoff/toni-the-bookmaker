@@ -50,7 +50,7 @@ tag that says what the run was about (`-t`, or by default the engine and where i
 ```
 source.txt                   the cleaned text that was actually read
 voice_ref.wav                 the trimmed voice sample
-voice_ref.source              which -v sample the reference came from
+voice_ref.source              where the reference came from: `sample:<sha1>` for -v, `designed:<voice-seed>:<hash>` for a designed narrator
 voice_ref.txt                 its transcript (redone whenever the clip or the -v sample changes; dropped if the sample has no clear speech)
 2026-01-15-1430-omni-local/   one run
   book.m4b                 the finished audiobook, with chapters
@@ -66,7 +66,7 @@ tail -f ~/Downloads/audiobooks/book/2026-01-15-1430-omni-local/render.log
 ```
 
 **If it gets interrupted**, just run the exact same command again. If the
-latest run folder with the same tag hasn't finished, it resumes there instead of starting over (passing a different `-v` starts a new run instead, because the
+latest run folder with the same tag hasn't finished, it resumes there instead of starting over (passing a different `-v`, or a different `--voice-seed` for a designed narrator, starts a new run instead, because the
 finished chunks were read in the other voice);
 if the latest run already finished, a fresh run folder is created instead.
 
@@ -84,15 +84,70 @@ generate, since the sample is replayed as a reference each time). It's also
 transcribed once up front, so the actual narration doesn't need to keep
 re-listening to figure out what the sample says.
 
-If you don't pass `-v`, you get a synthesized narrator voice instead of a
-clone. It's regenerated per worker process, so the voice can shift slightly
-partway through — passing a sample avoids that.
+If you don't pass `-v`, `omni` (English and Russian) designs the narrator once
+before rendering: it speaks one fixed sentence from the voice description
+(`TONI_OMNI_INSTRUCT`, default "male, middle-aged, low pitch"), saves it as
+`<book>/voice_ref.wav`, and clones that voice for the whole book, so it never
+drifts. The log prints the path so you can listen before the long render
+finishes. Its provenance is stored next to it in `<book>/voice_ref.source`: re-runs
+reuse it while the request is unchanged, and a later `-v` sample, a different
+`--voice-seed`, or a changed description or language prepares a fresh reference (and
+a `-v` sample you drop again goes back to a designed narrator).
+`--redesign-voice` forces a new one. Other engines and languages synthesize
+from the description per chunk, so the voice can shift — pass a sample.
 
 ## Languages
 
 The default engine, `omni`, can narrate in any of 600+ languages — pass one
 with `-l`, e.g. `-l ru` for Russian. `espeech` and `qwen` also support
 Russian; `pocket` and `kani` only support English.
+
+### Numbers, years and abbreviations
+
+For English and Russian the text is normalised before chunking: numbers,
+years (`1812` becomes "eighteen twelve" in English) and common abbreviations
+before a capitalised word (`Dr. Smith`) are spoken out, repeated punctuation
+is capped at three marks, and `omni` also enables its own English normaliser.
+Ambiguous tokens (`1,000`, `007`, `A12`, `1.2.3`) are left alone. Russian
+numerals are read in the nominative case regardless of context. Set
+`TONI_NORMALIZE=0` to turn all of this off (`toni-record` forwards it to
+remote hosts). It needs a language: `toni-record` defaults to `en`, but the
+plain `toni` CLI reads it only from `TONI_LANGUAGE`, so without that variable
+nothing is normalised.
+
+### Pacing tags
+
+Put tags in the source text to hand-tune pacing; they are never spoken:
+
+- `[pause]` adds 350 ms of silence, `[pause 800ms]` or `[pause 2s]` a chosen
+  length (at most 10 s). It stacks on the normal pause between chunks (or the longer
+  paragraph pause), and chapter timings account for it.
+- `[slow]...[/slow]` narrates the passage at 0.85x speed. Only `omni`
+  supports speed; other engines ignore it with a warning.
+
+A malformed tag (`[pause soon]`, a stray `[/slow]`) is left as text and a
+warning is printed.
+
+### Pronunciation lexicon
+
+Put a `lexicon.txt` next to the book's `source.txt`
+(`~/Downloads/audiobooks/<name>/`) to fix names and foreign words across the
+whole book, one `term = respelling` per line; a line starting with `#` is a
+comment, and a `#` elsewhere is part of the line (`C# = see sharp`). Lines that
+cannot be parsed are skipped with a warning:
+
+```
+# longest match wins, stress marks are kept
+Gandalf = Gand-alf
+New York = Noo Yorrk
+Аня = Ан+я
+```
+
+Matching is case-insensitive, on whole words, longest term first, in one pass
+(a respelling is never re-replaced). It runs after normalisation and before
+Russian stress marking, so write terms the way they read after normalisation,
+in spoken form (`Catch twenty-two`, not `Catch-22`). It is also sent to remote hosts. A running render keeps the
+chunks it already made — start a new run (`-t`) to apply a changed lexicon.
 
 ### Russian stress marking
 
@@ -126,12 +181,72 @@ stress-marked.
 | `-c, --chapters` | see below | Chapter heading pattern (ignored for EPUBs, whose titles come from the book itself) |
 | `-l, --language` | en | Language code |
 | `-m, --model` | omni | TTS engine: `omni`, `pocket`, `kani`, `espeech`, or `qwen` |
+| `--seed` | 0 | Base seed; the same seed and text give the same audio, so a regenerated chunk keeps its delivery. When chunks are batched, a chunk's take also depends on its batch partners; use `--batch 1` for per-chunk reproducibility |
+| `--voice-seed` | 0 | Seed of the designed narrator (`omni`, no `-v`); `--seed` only changes the takes |
+| `--batch` / `TONI_BATCH` | auto | `omni` only: chunks per model call (max 16). Batching runs in one process, so `-w` is ignored, and each batch shares one seed (the first chunk's), so a batch is reproducible as a whole, not per chunk |
+| `--redesign-voice` | off | Prepare the voice reference again: a fresh clone of `-v`, or the designed narrator for the current `--voice-seed` |
+| `--no-qc` | QC on | Skip the quality check (see [Quality check](#quality-check)) |
 | `-H, --host` | none | Render on a remote GPU host instead of locally |
 | `-d, --detach` | off | Run in the background |
 | `-h, --help` | | Show this help |
 
 Books land in `~/Downloads/audiobooks/<name>/` by default; change the folder
 with `-o` or the `AUDIOBOOK_LIBRARY` environment variable.
+
+## Quality check
+
+After rendering, Toni transcribes every chunk back with Whisper and compares it
+with the text (word error rate, after the same number and abbreviation
+normalisation as the text) and its duration with what the text should take,
+judged against the median of the run (clamped to the ratio window) once at least five chunks of four seconds
+or more have been measured. A chunk that skips words, babbles or is cut short is regenerated with a
+fresh but reproducible seed, up to twice, and then split like any failed chunk.
+The run ends with a `QC:` summary; per-chunk results are in `manifest.json`.
+Whisper (`openai/whisper-large-v3-turbo` through `transformers`, loaded per QC
+round and never alongside the TTS model) runs in the main process after
+rendering, never in render workers. QC runs on installs that include
+`transformers`: the `omni`, `espeech`, `kani` and `qwen` extras and the remote
+Docker image built from them. On a `pocket` install it is skipped with a
+one-line message.
+
+Whisper is told the book language (`TONI_LANGUAGE`) so short chunks are not
+misdetected as another language; unset, it auto-detects per chunk. Its base code
+is used (`en-US` becomes `en`), and a language Whisper does not know falls back
+to auto-detect. Chunks longer than 30 seconds are transcribed in long-form mode.
+A chunk whose transcription itself errors is kept as rendered, marked `error` in
+`manifest.json` and counted as "not checked" in the summary.
+
+Tune it with environment variables (or the matching `toni.cli` flags):
+`TONI_QC=0` (off), `TONI_QC_WER` (default 0.25), `TONI_QC_RATIO_MIN` (0.6),
+`TONI_QC_RATIO_MAX` (1.6), `TONI_QC_RETRIES` (2). For languages where Whisper
+is weak, raise `TONI_QC_WER`. Chunks under about 4 seconds skip the duration
+check because OmniVoice stretches very short text.
+
+## Faster renders on NVIDIA GPUs
+
+Set `TONI_OMNI_COMPILE=1` to compile `omni`'s language model with
+`torch.compile`. It only applies on CUDA with Triton installed (ignored on
+Apple Silicon and CPU), costs a one-off warm-up at the start of the render,
+and if compilation or the first compiled run fails, Toni logs a line and
+carries on in eager mode. The Docker image ships `gcc` and the C headers (`libc6-dev`) Triton needs to
+build its kernels, and sets `TONI_OMNI_COMPILE=0` so the flag is easy to
+find; export `TONI_OMNI_COMPILE=1` in your shell and it is forwarded to
+remote renders.
+
+## Edits and resume
+
+Every rendered chunk is also stored in `<book>/cache`, keyed by its text, the
+voice, engine, language, speed (including `[slow]`), pause, steps and seed. Edit a typo in the source,
+change the narrator or switch engine and re-run: only chunks whose key changed
+are rendered, the rest are reused (the log says how many). Chunk WAVs are
+written atomically and checked on resume, so a render interrupted by sleep or
+power loss re-renders the truncated chunk instead of shipping a glitch. A chunk's QC
+measurements are stored beside its audio: a reused chunk is judged again against
+the current thresholds without running Whisper, and a chunk QC gave up on is
+retried only if `--qc-retries` (or `TONI_QC_RETRIES`) is raised. Whisper is
+loaded only when some chunk actually needs transcribing. Delete `<book>/cache` to force a full
+re-render; `--cache-dir` moves it. Remote renders keep the same cache per book
+on the host (`<workdir>/<book>/cache`), shared by every run folder.
 
 ## Remote GPU rendering
 
@@ -213,7 +328,9 @@ prefer the script unless you have a specific reason not to.
 - **No chapters appear in the output.** The chapter detector looks for lines
   starting with words like `CHAPTER`, `PART` or `Глава` (any case, at most 60 characters). Check what your book actually
   uses (`grep -cE "^(PART|BOOK|CHAPTER|Chapter)\b" source.txt`) and pass your
-  own pattern with `-c` if it comes back zero.
+  own pattern with `-c` if it comes back zero. Headings are matched on the
+  text as written in the source, before numbers are spoken out or the lexicon
+  is applied, so `-c '^Глава \d+'` works as expected.
 - **The time estimate looks wrong early on.** Per-chunk timing drifts as the
   run settles in; ignore the ETA for the first several minutes.
 - **Don't raise `-w` (workers) much above 2.** Each worker loads its own copy
