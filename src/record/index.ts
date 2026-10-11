@@ -85,7 +85,7 @@ export async function pickRunDir(
     if (finished) continue;
     const startedWith = await Bun.file(`${bookDir}/${runDir}/voice_ref.source`).text().catch(() => undefined);
     if (startedWith !== undefined && startedWith.trim() !== source) {
-      log(`  ${runDir} was started with a different voice sample, starting a new run`);
+      log(`  ${runDir} was started with a different voice reference, starting a new run`);
       continue;
     }
     return `${bookDir}/${runDir}`;
