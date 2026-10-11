@@ -14,6 +14,7 @@ from toni.audio_encoder import wav_is_valid
 
 
 MANIFEST_VERSION = "1.2"
+AUDIO_CACHE_VERSION = "trim-v1"
 
 AUDIO_ENV = (
     "TONI_LANGUAGE",
@@ -30,7 +31,7 @@ AUDIO_ENV = (
 def run_fingerprint(model: str, voice_file: Path | None, seed: int) -> str:
     voice = hashlib.sha1(voice_file.read_bytes()).hexdigest() if voice_file else None
     env = {k: os.environ.get(k) for k in AUDIO_ENV}
-    return hashlib.sha1(json.dumps([model, voice, seed, env]).encode()).hexdigest()
+    return hashlib.sha1(json.dumps([AUDIO_CACHE_VERSION, model, voice, seed, env]).encode()).hexdigest()
 
 
 @dataclass
