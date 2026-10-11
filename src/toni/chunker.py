@@ -18,6 +18,7 @@ CLAUSE_MARK = r"(?:(?<!\d)[,:]|[,:](?!\d)|[;\-—])"
 TERMINAL_PUNCTUATION = re.compile(r"[.!?…,:;\-—][\"»”\')\]]*$")
 SPEAKABLE = re.compile(r"\w")
 PARAGRAPH_BREAK_AT_END = re.compile(r"\n\s*\n\s*$")
+PARAGRAPH_BREAK_AT_START = re.compile(r"\s*\n\s*\n")
 
 
 @dataclass
@@ -48,10 +49,14 @@ def chunk_with_marks(
     """Chunk text, honouring [pause] and [slow] tags as per-chunk metadata."""
     chunks: list[Chunk] = []
     segments = parse_pause_tags(text)
-    for segment in segments:
+    for index, segment in enumerate(segments):
         pieces = _chunk_plain(segment.text, max_chars, language, lexicon)
-        if pieces and not is_last_segment(segment, segments):
-            pieces[-1] = (*pieces[-1][:2], pieces[-1][2] and PARAGRAPH_BREAK_AT_END.search(segment.text) is not None)
+        if pieces and index < len(segments) - 1:
+            breaks_paragraph = (
+                PARAGRAPH_BREAK_AT_END.search(segment.text) is not None
+                or PARAGRAPH_BREAK_AT_START.match(segments[index + 1].text) is not None
+            )
+            pieces[-1] = (*pieces[-1][:2], pieces[-1][2] and breaks_paragraph)
         chunks.extend(
             Chunk(spoken, speed=segment.speed, raw_text=raw, ends_paragraph=ends)
             for raw, spoken, ends in pieces
@@ -61,10 +66,6 @@ def chunk_with_marks(
         elif chunks:
             chunks[-1].pause_ms = min(chunks[-1].pause_ms + segment.pause_ms, MAX_PAUSE_MS)
     return chunks
-
-
-def is_last_segment(segment, segments) -> bool:
-    return segment is segments[-1]
 
 
 def _chunk_plain(

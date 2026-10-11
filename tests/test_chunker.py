@@ -116,3 +116,14 @@ def test_pause_tag_inside_a_paragraph_does_not_end_it():
 
 def test_pause_tag_after_a_paragraph_break_keeps_the_paragraph_end():
     assert paragraph_ends("One.\n\n[pause 2s]\n\nTwo.") == [True, True]
+
+
+def test_pause_tag_closing_a_paragraph_keeps_the_paragraph_end():
+    assert paragraph_ends("One. [pause 2s]\n\nTwo.") == [True, True]
+    assert paragraph_ends("[slow]One.[/slow]\n\nTwo.") == [True, True]
+    assert paragraph_ends("One. [pause]\n\n[pause]\n\nTwo.") == [True, True]
+
+
+def test_pause_tag_before_a_single_newline_does_not_end_the_paragraph():
+    assert paragraph_ends("One. [pause 2s] Two.") == [False, True]
+    assert paragraph_ends("One. [pause]\nTwo.") == [False, True]
