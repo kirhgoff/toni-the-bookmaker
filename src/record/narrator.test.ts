@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { narratorPlan, requestedSource, seedsFrom, sha1Hex, type NarratorInput } from "./narrator.ts";
+import { isSampleReference, narratorPlan, requestedSource, seedsFrom, sha1Hex, type NarratorInput } from "./narrator.ts";
 
 const BASE: NarratorInput = {
   model: "omni", language: "en", seed: "0", instruct: "", refExists: false, redesign: false,
@@ -72,4 +72,10 @@ test("--voice-seed picks the designed narrator only", () => {
 
 test("--seed and --voice-seed are independent", () => {
   expect(seedsFrom({ seed: "7", "voice-seed": "4" })).toEqual({ designSeed: "4", renderSeed: "7" });
+});
+
+test("only a sample reference is transcribed and plausibility-checked, a designed one keeps its exact transcript", () => {
+  expect(isSampleReference({ ...BASE, voiceSha1: "abc" })).toBe(true);
+  expect(isSampleReference(BASE)).toBe(false);
+  expect(narratorPlan(BASE)).toBe("design");
 });

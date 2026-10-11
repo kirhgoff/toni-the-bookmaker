@@ -1,3 +1,6 @@
+import { copyFile, rm } from "node:fs/promises";
+import { dirname, extname } from "node:path";
+
 import { log, run, runOrThrow } from "./shell.ts";
 
 const GUTENBERG_START = /\*\*\*\s*START OF (?:THE|THIS) PROJECT GUTENBERG[^\n]*\n/;
@@ -13,7 +16,16 @@ export function stripBoilerplate(raw: string): { text: string; stripped: number 
   return { text: `${body}\n`, stripped: raw.length - body.length };
 }
 
-export async function prepareSource(input: string, dest: string): Promise<void> {
+export const CHAPTER_TITLES_FILE = "source.txt.chapters.txt";
+
+export async function prepareSource(input: string, dest: string, projectDir: string): Promise<void> {
+  if (extname(input).toLowerCase() === ".epub") {
+    await runOrThrow([
+      "uv", "run", "--project", projectDir, "python", "-m", "toni.text_extractor",
+      input, "-o", dest, "--cover-dir", dirname(dest),
+    ]);
+    return;
+  }
   const raw = await Bun.file(input).text();
   const { text, stripped } = stripBoilerplate(raw);
   if (stripped > 200) log(`  stripped ${stripped} chars of Project Gutenberg boilerplate`);
@@ -103,4 +115,81 @@ export async function prepareVoiceReference(source: string, dest: string): Promi
     dest,
   ]);
   log(`  voice reference trimmed to ${(to - from).toFixed(1)}s`);
+}
+
+const COVER_EXTENSIONS = [".jpg", ".jpeg", ".png"];
+const MAX_COVER_BYTES = 8 * 1024 * 1024;
+
+const COVER_CODECS = ["mjpeg", "png"];
+
+async function assertValidCover(path: string): Promise<void> {
+  if (Bun.file(path).size > MAX_COVER_BYTES) throw new Error(`Cover is larger than 8 MB: ${path}`);
+  const { code, stdout, stderr } = await run([
+    "ffprobe", "-v", "error", "-select_streams", "v:0",
+    "-show_entries", "stream=codec_name", "-of", "csv=p=0", path,
+  ]);
+  if (code !== 0 || stderr.trim() || !COVER_CODECS.includes(stdout.trim())) {
+    throw new Error(`Cover is not a valid JPEG or PNG image: ${path}`);
+  }
+}
+
+/** Resolve the cover to a file inside bookDir, so local and remote renders find it the same way. */
+export async function prepareCover(explicit: string | undefined, bookDir: string): Promise<string | undefined> {
+  if (!explicit) {
+    for (const extension of COVER_EXTENSIONS) {
+      const found = `${bookDir}/cover${extension}`;
+      if (!(await Bun.file(found).exists())) continue;
+      try {
+        await assertValidCover(found);
+      } catch (error) {
+        log(`  ignoring ${found}: ${(error as Error).message}; pass --cover to use another image`);
+        continue;
+      }
+      return `cover${extension}`;
+    }
+    return undefined;
+  }
+
+  const extension = extname(explicit).toLowerCase();
+  if (!COVER_EXTENSIONS.includes(extension)) throw new Error(`Cover must be a .jpg or .png file: ${explicit}`);
+  if (!(await Bun.file(explicit).exists())) throw new Error(`Cover not found: ${explicit}`);
+  await assertValidCover(explicit);
+
+  const coverFile = `cover${extension}`;
+  if (`${bookDir}/${coverFile}` !== explicit) await copyFile(explicit, `${bookDir}/${coverFile}`);
+  return coverFile;
+}
+
+const MIN_WORDS_PER_SECOND = 1.0;
+const WORD_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "word" });
+
+export function countWords(text: string): number {
+  let count = 0;
+  for (const part of WORD_SEGMENTER.segment(text)) if (part.isWordLike) count++;
+  return count;
+}
+
+export async function fingerprintOf(path: string): Promise<string> {
+  const bytes = await Bun.file(path).bytes();
+  return `${bytes.length}-${new Bun.CryptoHasher("sha1").update(bytes).digest("hex")}`;
+}
+
+export function needsRegeneration(artifactExists: boolean, storedFingerprint: string | undefined, fingerprint: string): boolean {
+  return !artifactExists || storedFingerprint?.trim() !== fingerprint;
+}
+
+export async function discardVoiceReference(bookDir: string): Promise<void> {
+  for (const name of ["voice_ref.wav", "voice_ref.txt", "voice_ref.fingerprint", "voice_ref.source"]) {
+    await rm(`${bookDir}/${name}`, { force: true });
+  }
+}
+
+export function assertPlausibleTranscript(transcript: string, clipSeconds: number): void {
+  const words = countWords(transcript);
+  if (words / clipSeconds >= MIN_WORDS_PER_SECOND) return;
+  throw new Error(
+    `Voice sample transcript has ${words} words for ${clipSeconds.toFixed(1)}s of audio ` +
+    `(expected at least ${MIN_WORDS_PER_SECOND.toFixed(1)}/s). The sample probably has no clear speech; ` +
+    "use a clean recording of one speaker talking continuously, then re-run.",
+  );
 }

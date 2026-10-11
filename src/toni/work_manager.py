@@ -14,6 +14,7 @@ from toni.audio_encoder import wav_is_valid
 
 
 MANIFEST_VERSION = "1.2"
+AUDIO_CACHE_VERSION = "trim-v1"
 
 AUDIO_ENV = (
     "TONI_LANGUAGE",
@@ -30,7 +31,7 @@ AUDIO_ENV = (
 def run_fingerprint(model: str, voice_file: Path | None, seed: int) -> str:
     voice = hashlib.sha1(voice_file.read_bytes()).hexdigest() if voice_file else None
     env = {k: os.environ.get(k) for k in AUDIO_ENV}
-    return hashlib.sha1(json.dumps([model, voice, seed, env]).encode()).hexdigest()
+    return hashlib.sha1(json.dumps([AUDIO_CACHE_VERSION, model, voice, seed, env]).encode()).hexdigest()
 
 
 @dataclass
@@ -258,6 +259,7 @@ class WorkManager:
         total_chunks: int,
         copied_input: Path | None = None,
         copied_voice: Path | None = None,
+        paragraph_ends: list[bool] | None = None,
         chunk_marks: list[dict[str, Any]] | None = None,
         seed: int = 0,
         fingerprint: str = "",
@@ -288,6 +290,8 @@ class WorkManager:
         for i in range(total_chunks):
             marks = chunk_marks[i] if chunk_marks else {}
             self._manifest.chunks[str(i)] = {"status": "pending", **marks}
+            if paragraph_ends and paragraph_ends[i]:
+                self._manifest.chunks[str(i)]["ends_paragraph"] = True
 
         self.save_manifest()
         return self._manifest
@@ -563,6 +567,26 @@ class WorkManager:
         elif status == "split":
             for sub_id in sorted(chunk_data.get("sub_chunks", []), key=_chunk_sort_key):
                 self._collect_audio_chunks(manifest, sub_id, result)
+
+    def ends_paragraph(self, chunk_id: str) -> bool:
+        """Whether this chunk's audio is the last of its paragraph, even after splits."""
+        return self._ends_paragraph(self.load_manifest(), chunk_id)
+
+    def paragraph_ends(self, chunk_ids: list[str]) -> list[bool]:
+        manifest = self.load_manifest()
+        return [self._ends_paragraph(manifest, chunk_id) for chunk_id in chunk_ids]
+
+    def _ends_paragraph(self, manifest: Manifest, chunk_id: str) -> bool:
+        chunk_data = manifest.chunks.get(chunk_id, {})
+        if chunk_data.get("ends_paragraph"):
+            return True
+        parent = chunk_data.get("parent")
+        if not parent:
+            return False
+        siblings = sorted(
+            manifest.chunks[parent].get("sub_chunks", []), key=_chunk_sort_key
+        )
+        return siblings[-1] == chunk_id and self._ends_paragraph(manifest, parent)
 
     def get_progress_summary(self) -> dict:
         """Get summary of processing progress."""

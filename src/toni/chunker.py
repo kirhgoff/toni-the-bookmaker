@@ -17,6 +17,8 @@ SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?…])\s+(?=[\"«\'(\u2014-]?\+?[^\W\d_a
 CLAUSE_MARK = r"(?:(?<!\d)[,:]|[,:](?!\d)|[;\-—])"
 TERMINAL_PUNCTUATION = re.compile(r"[.!?…,:;\-—][\"»”\')\]]*$")
 SPEAKABLE = re.compile(r"\w")
+PARAGRAPH_BREAK_AT_END = re.compile(r"\n\s*\n\s*$")
+PARAGRAPH_BREAK_AT_START = re.compile(r"\s*\n\s*\n")
 
 
 @dataclass
@@ -25,6 +27,7 @@ class Chunk:
     pause_ms: int = 0
     speed: float | None = None
     raw_text: str = ""
+    ends_paragraph: bool = False
 
 
 def chunk_text(
@@ -45,9 +48,19 @@ def chunk_with_marks(
 ) -> list[Chunk]:
     """Chunk text, honouring [pause] and [slow] tags as per-chunk metadata."""
     chunks: list[Chunk] = []
-    for segment in parse_pause_tags(text):
+    segments = parse_pause_tags(text)
+    for index, segment in enumerate(segments):
         pieces = _chunk_plain(segment.text, max_chars, language, lexicon)
-        chunks.extend(Chunk(spoken, speed=segment.speed, raw_text=raw) for raw, spoken in pieces)
+        if pieces and index < len(segments) - 1:
+            breaks_paragraph = (
+                PARAGRAPH_BREAK_AT_END.search(segment.text) is not None
+                or PARAGRAPH_BREAK_AT_START.match(segments[index + 1].text) is not None
+            )
+            pieces[-1] = (*pieces[-1][:2], pieces[-1][2] and breaks_paragraph)
+        chunks.extend(
+            Chunk(spoken, speed=segment.speed, raw_text=raw, ends_paragraph=ends)
+            for raw, spoken, ends in pieces
+        )
         if pieces:
             chunks[-1].pause_ms = segment.pause_ms
         elif chunks:
@@ -60,7 +73,7 @@ def _chunk_plain(
     max_chars: int = 500,
     language: str | None = None,
     lexicon: dict[str, str] | None = None,
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, str, bool]]:
     """Split text into (pre-normalisation text, spoken text) chunks suitable for TTS processing.
 
     Chunks are split at sentence boundaries when possible, respecting
@@ -74,25 +87,28 @@ def _chunk_plain(
         lexicon: Pronunciation respellings applied after normalisation.
 
     Returns:
-        List of (raw text, spoken text) pairs; raw text is what chapter
-        headings are detected on.
+        List of (raw text, spoken text, ends paragraph) triples; raw text is
+        what chapter headings are detected on.
     """
     if not text.strip():
         return []
 
-    chunks: list[tuple[str, str]] = []
+    chunks: list[tuple[str, str, bool]] = []
     for raw in split_into_paragraphs(normalize_text(text)):
         raw = raw.strip()
         if not raw:
             continue
         spoken = _speak(raw, language, lexicon)
         if len(spoken) <= max_chars:
-            chunks.append((raw, spoken))
+            chunks.append((raw, spoken, True))
             continue
         pieces = [
             end_with_punctuation(piece) for piece in split_paragraph(spoken, max_chars)
         ]
-        chunks.extend((raw if index == 0 else piece, piece) for index, piece in enumerate(pieces))
+        chunks.extend(
+            (raw if index == 0 else piece, piece, index == len(pieces) - 1)
+            for index, piece in enumerate(pieces)
+        )
 
     return merge_unspeakable(chunks, max_chars)
 
@@ -109,24 +125,24 @@ def end_with_punctuation(chunk: str, mark: str = ".") -> str:
 
 
 def merge_unspeakable(
-    chunks: list[tuple[str, str]], max_chars: int
-) -> list[tuple[str, str]]:
+    chunks: list[tuple[str, str, bool]], max_chars: int
+) -> list[tuple[str, str, bool]]:
     """Fold chunks with no letters or digits into the previous or next chunk; drop them if neither fits."""
-    merged: list[tuple[str, str]] = []
-    carry: tuple[str, str] | None = None
-    for raw, spoken in chunks:
+    merged: list[tuple[str, str, bool]] = []
+    carry: tuple[str, str, bool] | None = None
+    for raw, spoken, ends in chunks:
         if not SPEAKABLE.search(spoken):
             if merged and len(merged[-1][1]) + len(spoken) + 1 <= max_chars:
-                merged[-1] = (f"{merged[-1][0]} {raw}", f"{merged[-1][1]} {spoken}")
+                merged[-1] = (f"{merged[-1][0]} {raw}", f"{merged[-1][1]} {spoken}", ends)
             elif carry:
-                carry = (f"{carry[0]} {raw}", f"{carry[1]} {spoken}")
+                carry = (f"{carry[0]} {raw}", f"{carry[1]} {spoken}", ends)
             else:
-                carry = (raw, spoken)
+                carry = (raw, spoken, ends)
             continue
         if carry and len(carry[1]) + len(spoken) + 1 <= max_chars:
             spoken = f"{carry[1]} {spoken}"
         carry = None
-        merged.append((raw, spoken))
+        merged.append((raw, spoken, ends))
     return merged
 
 

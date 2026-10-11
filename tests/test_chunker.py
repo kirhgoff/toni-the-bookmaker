@@ -1,6 +1,6 @@
 import pytest
 
-from toni.chunker import chunk_text, split_into_sentences
+from toni.chunker import chunk_text, chunk_with_marks, split_into_sentences
 
 
 @pytest.mark.parametrize(
@@ -96,3 +96,34 @@ def test_scene_break_carried_into_the_next_chunk_keeps_its_heading_detectable(se
     assert [c.raw_text for c in chunks] == [filler, heading]
     assert chunks[1].text == f"{separator} {heading}"
     assert re.match(pattern, chunks[1].raw_text)
+
+
+def paragraph_ends(text, **kwargs):
+    return [chunk.ends_paragraph for chunk in chunk_with_marks(text, **kwargs)]
+
+
+def test_chunks_flag_paragraph_ends():
+    assert paragraph_ends("One. Two.\n\nThree.") == [True, True]
+
+
+def test_only_last_piece_of_long_paragraph_ends_it():
+    assert paragraph_ends("Aaaa aaaa. Bbbb bbbb. Cccc cccc.", max_chars=12) == [False, False, True]
+
+
+def test_pause_tag_inside_a_paragraph_does_not_end_it():
+    assert paragraph_ends("One. [pause 2s] Two.\n\nThree.") == [False, True, True]
+
+
+def test_pause_tag_after_a_paragraph_break_keeps_the_paragraph_end():
+    assert paragraph_ends("One.\n\n[pause 2s]\n\nTwo.") == [True, True]
+
+
+def test_pause_tag_closing_a_paragraph_keeps_the_paragraph_end():
+    assert paragraph_ends("One. [pause 2s]\n\nTwo.") == [True, True]
+    assert paragraph_ends("[slow]One.[/slow]\n\nTwo.") == [True, True]
+    assert paragraph_ends("One. [pause]\n\n[pause]\n\nTwo.") == [True, True]
+
+
+def test_pause_tag_before_a_single_newline_does_not_end_the_paragraph():
+    assert paragraph_ends("One. [pause 2s] Two.") == [False, True]
+    assert paragraph_ends("One. [pause]\nTwo.") == [False, True]

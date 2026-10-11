@@ -21,6 +21,8 @@ export interface RenderOptions {
   voiceRef?: string;
   lexicon?: string;
   refText?: string;
+  coverFile?: string;
+  chapterTitlesFile?: string;
 }
 
 export function cliArgs(
@@ -40,6 +42,8 @@ export function cliArgs(
     "--cache-dir", cacheDir,
   ];
   if (o.voiceRef) args.push("-v", `${inDir}/voice_ref.wav`);
+  if (o.coverFile) args.push("--cover", `${inDir}/${o.coverFile}`);
+  if (o.chapterTitlesFile) args.push("--chapter-titles", `${inDir}/${o.chapterTitlesFile}`);
   if (o.lexicon) args.push("--lexicon", `${inDir}/lexicon.txt`);
   if (o.seed) args.push("--seed", o.seed);
   if (o.batch) args.push("--batch", o.batch);
@@ -139,6 +143,9 @@ export async function renderRemote(hostName: string, o: RenderOptions): Promise<
   await rsync(`${o.bookDir}/source.txt`, `${host.ssh}:${jobDir}/source.txt`);
   if (o.voiceRef) await rsync(o.voiceRef, `${host.ssh}:${jobDir}/voice_ref.wav`);
   if (o.lexicon) await rsync(o.lexicon, `${host.ssh}:${jobDir}/lexicon.txt`);
+
+  if (o.coverFile) await rsync(`${o.bookDir}/${o.coverFile}`, `${host.ssh}:${jobDir}/${o.coverFile}`);
+  if (o.chapterTitlesFile) await rsync(`${o.bookDir}/${o.chapterTitlesFile}`, `${host.ssh}:${jobDir}/${o.chapterTitlesFile}`);
 
   const script = remoteScript(o, host, jobDir, cacheDir);
 

@@ -1,6 +1,6 @@
 # Toni the Book Maker
 
-Toni turns a text file or PDF into an audiobook. Feed it a book, optionally a
+Toni turns a text file, PDF or EPUB into an audiobook. Feed it a book, optionally a
 short sample of a voice, and it reads the whole thing out loud, cuts it into
 chapters, and hands you back one finished audio file.
 
@@ -50,9 +50,11 @@ tag that says what the run was about (`-t`, or by default the engine and where i
 ```
 source.txt                   the cleaned text that was actually read
 voice_ref.wav                 the trimmed voice sample
-voice_ref.txt                 its transcript
+voice_ref.source              where the reference came from: `sample:<sha1>` for -v, `designed:<voice-seed>:<hash>` for a designed narrator
+voice_ref.txt                 its transcript (redone whenever the clip or the -v sample changes; dropped if the sample has no clear speech)
 2026-01-15-1430-omni-local/   one run
   book.m4b                 the finished audiobook, with chapters
+  voice_ref.source         the sample the run was started with
   render.log               progress and any errors
   work/                     intermediate audio chunks (safe to delete once you're happy)
 ```
@@ -64,7 +66,8 @@ tail -f ~/Downloads/audiobooks/book/2026-01-15-1430-omni-local/render.log
 ```
 
 **If it gets interrupted**, just run the exact same command again. If the
-latest run folder with the same tag hasn't finished, it resumes there instead of starting over;
+latest run folder with the same tag hasn't finished, it resumes there instead of starting over (passing a different `-v`, or a different `--voice-seed` for a designed narrator, starts a new run instead, because the
+finished chunks were read in the other voice);
 if the latest run already finished, a fresh run folder is created instead.
 
 **How long it takes:** roughly 6 hours for a full-length novel on a Mac
@@ -117,8 +120,8 @@ nothing is normalised.
 Put tags in the source text to hand-tune pacing; they are never spoken:
 
 - `[pause]` adds 350 ms of silence, `[pause 800ms]` or `[pause 2s]` a chosen
-  length (at most 10 s). It stacks on the normal pause between chunks, and
-  chapter timings account for it.
+  length (at most 10 s). It stacks on the normal pause between chunks (or the longer
+  paragraph pause), and chapter timings account for it.
 - `[slow]...[/slow]` narrates the passage at 0.85x speed. Only `omni`
   supports speed; other engines ignore it with a warning.
 
@@ -164,16 +167,18 @@ stress-marked.
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `-i, --input` | required | Source `.txt` or `.pdf` |
+| `-i, --input` | required | Source `.txt`, `.pdf` or `.epub` (spine order; pages marked cover, contents, title or copyright in the EPUB's landmarks or guide are skipped, as are short untagged pages before the first contents entry; the EPUB's own headings (h1-h3, or the contents entry for a file without one) become the chapters, narrated as written) |
 | `-v, --voice` | none | Voice sample to clone |
 | `-n, --name` | input filename | Output folder name |
 | `-t, --tag` | engine and host | Suffix for the run folder, e.g. `-t first-try` |
 | `-o, --output-dir` | `~/Downloads/audiobooks` | Folder that holds all your books |
 | `-w, --workers` | 2 | Parallel narration processes — don't raise this much, see [Troubleshooting](#troubleshooting) |
 | `-b, --bitrate` | 64k | Audio bitrate |
-| `-p, --pause` | 500 | Pause between sentences and chunks, in milliseconds |
+| `-p, --pause` | 500 | Pause between sentences and chunks, in milliseconds; paragraph ends get twice that (`--paragraph-pause MS` on the lower-level CLI sets it; it is never shorter than the sentence pause, so `0` disables the extra pause) |
 | `-f, --format` | m4b | `m4b` (with chapters) or `mp3` (no chapters) |
-| `-c, --chapters` | see below | Chapter heading pattern |
+| `--cover` | `cover.jpg`/`cover.png` in the book folder | Cover art (.jpg/.png, max 8 MB, checked with ffprobe before rendering; the lower-level CLI checks type and size too) embedded in the `m4b`; an invalid or oversized `cover.jpg`/`cover.png` found in the folder is skipped with a warning (an explicit `--cover` still fails). For an EPUB with no cover in the book folder yet, the book's own cover is extracted there, only when it is a JPEG or PNG of at most 8 MB |
+| `--loudness` | default | Loudness target: `default` (-18 LUFS; a true peak above -2 dBTP only warns) or `acx` (-19 LUFS ±1, true peak at most -3 dBTP for Audible/ACX; when the encoder overshoots, the limiter is lowered and the file re-encoded, up to three times, and the run fails - keeping the file - if it still misses) |
+| `-c, --chapters` | see below | Chapter heading pattern (ignored for EPUBs, whose titles come from the book itself) |
 | `-l, --language` | en | Language code |
 | `-m, --model` | omni | TTS engine: `omni`, `pocket`, `kani`, `espeech`, or `qwen` |
 | `--seed` | 0 | Base seed; the same seed and text give the same audio, so a regenerated chunk keeps its delivery. When chunks are batched, a chunk's take also depends on its batch partners; use `--batch 1` for per-chunk reproducibility |
@@ -321,7 +326,7 @@ prefer the script unless you have a specific reason not to.
 ## Troubleshooting
 
 - **No chapters appear in the output.** The chapter detector looks for lines
-  starting with words like `CHAPTER` or `PART`. Check what your book actually
+  starting with words like `CHAPTER`, `PART` or `Глава` (any case, at most 60 characters). Check what your book actually
   uses (`grep -cE "^(PART|BOOK|CHAPTER|Chapter)\b" source.txt`) and pass your
   own pattern with `-c` if it comes back zero. Headings are matched on the
   text as written in the source, before numbers are spoken out or the lexicon
@@ -334,7 +339,8 @@ prefer the script unless you have a specific reason not to.
 - **The file might still be bad after "Done!"** — every render is decoded
   end to end and loudness-normalised to -18 LUFS when it's off; run
   `scripts/normalize_audiobook.sh book.m4b` to do the same for any existing
-  file.
+  file (add `--loudness acx` for Audible/ACX; it re-encodes up to three times
+  and fails loudly if the ceiling cannot be met).
 - **The book is too quiet** — same script: `scripts/normalize_audiobook.sh book.m4b`.
 - **It's extremely slow with no GPU or Apple Silicon.** CPU-only rendering is
   roughly 8 times slower — a full novel can take on the order of a week.

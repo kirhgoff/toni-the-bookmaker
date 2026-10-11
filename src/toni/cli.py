@@ -39,6 +39,19 @@ from toni.work_manager import WorkManager, run_fingerprint
 MAX_BATCH = 16
 
 
+MAX_COVER_BYTES = 8 * 1024 * 1024
+
+
+def _check_cover(ctx, param, value: Path | None) -> Path | None:
+    if value is None:
+        return None
+    if value.suffix.lower() not in (".jpg", ".jpeg", ".png"):
+        raise click.BadParameter(f"{value} must be a .jpg or .png file")
+    if value.stat().st_size > MAX_COVER_BYTES:
+        raise click.BadParameter(f"{value} is larger than 8 MB")
+    return value
+
+
 def get_default_workers() -> int:
     """Get default number of workers (half of CPU cores, minimum 1)."""
     return max(1, (os.cpu_count() or 2) // 2)
@@ -349,7 +362,7 @@ def _chunk_marks(chunk) -> dict:
     "input_file",
     type=click.Path(exists=True, path_type=Path),
     required=True,
-    help="Input PDF or text file.",
+    help="Input PDF, EPUB or text file.",
 )
 @click.option(
     "-o",
@@ -388,6 +401,20 @@ def _chunk_marks(chunk) -> dict:
     help="Pause duration between chunks in milliseconds.",
 )
 @click.option(
+    "--paragraph-pause",
+    type=int,
+    default=None,
+    help="Pause after a paragraph in milliseconds, never shorter than the sentence pause. Default: twice --chunk-pause.",
+)
+@click.option(
+    "--cover",
+    "cover_file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    callback=_check_cover,
+    help="Cover image (.jpg or .png, at most 8 MB) to embed in .m4b output.",
+)
+@click.option(
     "--bitrate",
     type=str,
     default="64k",
@@ -399,6 +426,13 @@ def _chunk_marks(chunk) -> dict:
     type=str,
     default=DEFAULT_CHAPTER_PATTERN,
     help="Regex matching chapter headings. Chapters are embedded for .m4b output.",
+)
+@click.option(
+    "--chapter-titles",
+    "chapter_titles_file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="File of chapter titles, one per line, in order; used instead of --chapter-pattern.",
 )
 @click.option(
     "--work-dir",
@@ -486,8 +520,11 @@ def main(
     lexicon_file: Path | None,
     model: str,
     chunk_pause: int,
+    paragraph_pause: int | None,
+    cover_file: Path | None,
     bitrate: str,
     chapter_pattern: str,
+    chapter_titles_file: Path | None,
     work_dir: Path | None,
     cache_dir: Path | None,
     max_retries: int,
@@ -588,6 +625,7 @@ def main(
             total_chunks=total_chunks,
             copied_input=copied_input,
             copied_voice=copied_voice,
+            paragraph_ends=[chunk.ends_paragraph for chunk in chunks],
             chunk_marks=[_chunk_marks(chunk) for chunk in chunks],
             seed=seed,
             fingerprint=run_fingerprint(model, copied_voice, seed),
@@ -670,6 +708,15 @@ def main(
     chunk_texts = [work.load_chunk_text(cid) for cid in audio_chunk_ids]
     heading_texts = [work.load_chunk_heading_text(cid) for cid in audio_chunk_ids]
 
+    chapter_titles = (
+        [
+            " ".join(line.split())
+            for line in chapter_titles_file.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        if chapter_titles_file
+        else None
+    )
     work_output = work.work_dir / f"output{output_file.suffix or '.mp3'}"
     chapter_count = concatenate_with_ffmpeg(
         audio_paths=audio_paths,
@@ -681,6 +728,10 @@ def main(
         chunk_texts=chunk_texts,
         heading_texts=heading_texts,
         chapter_pattern=chapter_pattern,
+        paragraph_ends=work.paragraph_ends(audio_chunk_ids),
+        paragraph_pause_ms=paragraph_pause,
+        cover_path=cover_file,
+        chapter_titles=chapter_titles,
         extra_pauses_ms=work.get_extra_pauses(audio_chunk_ids),
     )
     if chapter_count:

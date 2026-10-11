@@ -1,9 +1,22 @@
+import json
+import struct
+import subprocess
 import wave
+import zlib
 from pathlib import Path
 
 import numpy as np
+import pytest
+from conftest import requires_ffmpeg, run_toni
 
-from toni.audio_encoder import build_chapters, pause_after
+from toni.audio_encoder import (
+    build_chapters,
+    concatenate_with_ffmpeg,
+    gap_after,
+    pause_after,
+    trim_edges,
+    wav_duration_ms,
+)
 
 
 def write_wav(path: Path, ms: int, sample_rate: int = 24000) -> Path:
@@ -36,6 +49,226 @@ def test_build_chapters_offsets_use_variable_pauses(tmp_path):
     assert total == 3000 + 400 + 100
 
 
+@pytest.mark.parametrize(
+    "text,detected",
+    [
+        ("Part One", True),
+        ("CHAPTER XII", True),
+        ("Глава 1", True),
+        ("ЧАСТЬ вторая", True),
+        ("эпилог", True),
+        ("Part of the problem was that nobody had told the old man anything at all.", False),
+        ("Book lovers rejoice", True),
+        ("Главный герой не спал всю ночь, потому что думал о долгой дороге домой.", False),
+    ],
+)
+def test_default_chapter_pattern(tmp_path, text, detected):
+    paths = [write_wav(tmp_path / "0.wav", 100)]
+    chapters, _ = build_chapters(paths, [text], pause_ms=400)
+    assert bool(chapters) is detected
+
+
+def test_custom_chapter_pattern_still_respected(tmp_path):
+    paths = [write_wav(tmp_path / "0.wav", 100)]
+    chapters, _ = build_chapters(paths, ["Act 1"], pause_ms=400, pattern=r"^Act\b")
+    assert chapters == [(0, "Act 1")]
+
+
+def test_heading_followed_by_single_newline_is_still_a_chapter(tmp_path):
+    paths = [write_wav(tmp_path / "0.wav", 100)]
+    text = "CHAPTER 1\nIt was a bright cold day in April, and the clocks were striking thirteen."
+    chapters, _ = build_chapters(paths, [text], pause_ms=400)
+    assert chapters == [(0, "CHAPTER 1")]
+
+
+def test_titles_start_chapters_in_order_and_ignore_the_pattern(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 1000) for i in range(4)]
+    texts = ["3. The Flood", "Глава 9 in the text", "Потоп", "Тихая ночь"]
+    chapters, _ = build_chapters(paths, texts, pause_ms=400, titles=["3. The Flood", "Потоп", "Тихая ночь"])
+    assert [title for _, title in chapters] == ["3. The Flood", "Потоп", "Тихая ночь"]
+    assert [start for start, _ in chapters] == [0, 2800, 4200]
+
+
+def test_titles_only_match_a_chunk_that_opens_with_the_next_expected_title(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 100) for i in range(3)]
+    texts = ["Second", "First", "Second"]
+    chapters, _ = build_chapters(paths, texts, pause_ms=400, titles=["First", "Second"])
+    assert [(title) for _, title in chapters] == ["First", "Second"]
+    assert [start for start, _ in chapters] == [500, 1000]
+
+
+def test_a_title_absent_from_the_text_does_not_block_later_chapters(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 100) for i in range(3)]
+    chapters, _ = build_chapters(paths, ["One", "body", "Three"], pause_ms=400, titles=["One", "Two", "Three"])
+    assert chapters == [(0, "One"), (1000, "Three")]
+
+
+def test_a_heading_split_by_the_chunker_still_starts_its_chapter(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 100) for i in range(3)]
+    texts = ["The Very Long Title.", "And the subtitle goes on.", "body"]
+    title = "The Very Long Title. And the subtitle goes on."
+    chapters, _ = build_chapters(paths, texts, pause_ms=400, titles=[title])
+    assert chapters == [(0, title)]
+
+
+SR = 24000
+
+
+def tone(ms: int) -> np.ndarray:
+    t = np.arange(SR * ms // 1000) / SR
+    return (0.5 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+
+
+def test_trim_edges_keeps_margin_and_interior():
+    gap = np.zeros(SR // 2, dtype=np.float32)
+    audio = np.concatenate([np.zeros(SR), tone(300), gap, tone(300), np.zeros(SR)])
+    trimmed = trim_edges(audio, SR)
+    margin = int(0.04 * SR)
+    expected = len(tone(300)) * 2 + len(gap) + 2 * margin
+    assert abs(len(trimmed) - expected) < 100
+
+
+def test_trim_edges_accepts_column_and_row_shaped_input():
+    audio = np.concatenate([np.zeros(SR), tone(300), np.zeros(SR)])
+    assert len(trim_edges(audio.reshape(1, -1), SR)) == len(trim_edges(audio, SR)) > 0
+    assert len(trim_edges(audio.reshape(-1, 1), SR)) == len(trim_edges(audio, SR))
+
+
+def test_trim_edges_cuts_a_noise_floor_tail_on_a_quiet_chunk():
+    rng = np.random.default_rng(0)
+    hiss = (0.0005 * rng.standard_normal(SR)).astype(np.float32)
+    quiet = 0.04 * tone(300)
+    trimmed = trim_edges(np.concatenate([hiss, quiet, hiss]), SR)
+    assert len(trimmed) < len(quiet) + 2 * int(0.04 * SR) + 200
+
+
+def test_trim_edges_keeps_speech_on_a_very_quiet_chunk():
+    audio = np.concatenate([np.zeros(SR), 0.001 * tone(300), np.zeros(SR)])
+    trimmed = trim_edges(audio, SR)
+    assert abs(len(trimmed) - (len(tone(300)) + 2 * int(0.04 * SR))) < 300
+
+
+def test_trim_edges_cuts_a_noise_bed_below_the_floor():
+    rng = np.random.default_rng(1)
+    bed = (10 ** (-55 / 20) * rng.standard_normal(3 * SR)).astype(np.float32)
+    bed[SR : 2 * SR] += tone(1000)
+    assert len(trim_edges(bed, SR)) <= SR + 2 * int(0.04 * SR) + 600
+
+
+def test_zero_paragraph_pause_disables_the_extra_pause(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 500) for i in range(2)]
+    concatenate_with_ffmpeg(
+        paths, tmp_path / "out.mp3", 24000, pause_ms=200, paragraph_ends=[True, False], paragraph_pause_ms=0
+    )
+    assert (tmp_path / "silence_200.wav").exists()
+    assert not (tmp_path / "silence_0.wav").exists()
+    assert not (tmp_path / "silence_400.wav").exists()
+
+
+def test_build_chapters_zero_paragraph_pause_is_respected(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 1000) for i in range(2)]
+    chapters, total = build_chapters(
+        paths, ["Text.", "CHAPTER 2"], pause_ms=400, paragraph_ends=[True, False], paragraph_pause_ms=0
+    )
+    assert chapters == [(1400, "CHAPTER 2")]
+    assert total == 2400
+
+
+def test_trim_edges_all_silent_is_safe():
+    assert len(trim_edges(np.zeros(SR, dtype=np.float32), SR)) <= int(0.04 * SR)
+    assert len(trim_edges(np.zeros(0, dtype=np.float32), SR)) == 0
+
+
+def test_gap_after_paragraph_uses_paragraph_pause():
+    assert gap_after("Он ушел.", True, 500, 1000) == 1000
+    assert gap_after("Он ушел.", False, 500, 1000) == 500
+    assert gap_after("сказал он,", False, 500, 1000) == 125
+    assert gap_after("Он ушел.", True, 500, 0) == 500
+    assert gap_after("сказал он,", True, 500, 100) == 125
+
+
+def test_build_chapters_paragraph_boundary_gets_paragraph_pause(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 1000) for i in range(3)]
+    texts = ["Some text.", "More text.", "CHAPTER 2"]
+    chapters, total = build_chapters(
+        paths,
+        texts,
+        pause_ms=400,
+        paragraph_ends=[False, True, False],
+        paragraph_pause_ms=800,
+    )
+    assert chapters == [(2000 + 400 + 800, "CHAPTER 2")]
+    assert total == 3000 + 400 + 800
+
+
+def test_concat_inserts_paragraph_silence(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 500) for i in range(2)]
+    concatenate_with_ffmpeg(
+        paths,
+        tmp_path / "out.mp3",
+        24000,
+        pause_ms=200,
+        paragraph_ends=[True, False],
+        paragraph_pause_ms=400,
+    )
+    assert (tmp_path / "silence_400.wav").exists()
+    assert not (tmp_path / "silence_200.wav").exists()
+
+
+def tiny_png(path: Path) -> Path:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    header = struct.pack(">IIBBBBB", 2, 2, 8, 2, 0, 0, 0)
+    pixels = zlib.compress(b"".join(b"\x00" + b"\xff\x00\x00" * 2 for _ in range(2)))
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", pixels) + chunk(b"IEND", b"")
+    )
+    return path
+
+
+def stream_kinds(path: Path) -> list[str]:
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(path)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return [
+        "cover" if s["disposition"]["attached_pic"] else s["codec_type"]
+        for s in json.loads(probe.stdout)["streams"]
+    ]
+
+
+def test_m4b_embeds_cover_and_mp3_ignores_it(tmp_path):
+    paths = [write_wav(tmp_path / f"{i}.wav", 500) for i in range(2)]
+    cover = tiny_png(tmp_path / "cover.png")
+    m4b = tmp_path / "out.m4b"
+    mp3 = tmp_path / "out.mp3"
+    concatenate_with_ffmpeg(paths, m4b, 24000, chunk_texts=["CHAPTER 1", "Text."], cover_path=cover)
+    concatenate_with_ffmpeg(paths, mp3, 24000, cover_path=cover)
+    assert {"audio", "cover"} <= set(stream_kinds(m4b))
+    assert stream_kinds(mp3) == ["audio"]
+
+
+def test_cli_rejects_a_cover_that_is_not_jpg_png_or_too_large(tmp_path):
+    from click.testing import CliRunner
+
+    from toni.cli import main
+
+    missing_input = tmp_path / "missing.txt"
+    gif = tmp_path / "art.gif"
+    gif.write_bytes(b"x")
+    big = tmp_path / "big.png"
+    big.write_bytes(b"x" * (8 * 1024 * 1024 + 1))
+    runner = CliRunner()
+    for cover, message in ((gif, ".jpg or .png"), (big, "8 MB")):
+        result = runner.invoke(main, ["--cover", str(cover), "-i", str(missing_input)])
+        assert result.exit_code == 2
+        assert message in result.output
+
+
 def test_build_chapters_offsets_include_extra_pauses(tmp_path):
     paths = [write_wav(tmp_path / f"{i}.wav", 1000) for i in range(3)]
     texts = ["CHAPTER 1.", "Middle.", "CHAPTER 2."]
@@ -51,3 +284,24 @@ def test_build_chapters_match_headings_on_pre_normalisation_text(tmp_path):
     chapters, _ = build_chapters(paths, spoken, 400, r"^Глава \d+", heading_texts=raw)
     assert chapters == [(0, "Глава 12")]
     assert build_chapters(paths, spoken, 400, r"^Глава \d+")[0] == []
+
+
+@requires_ffmpeg
+def test_cli_chapter_offset_matches_concat_gaps_for_paragraph_ends_and_pause_tags(fake, tmp_path):
+
+    text = "CHAPTER 1\n\nHello there. [pause 2s] More text here.\n\nCHAPTER 2\n\nThe end."
+    work = run_toni(tmp_path, text, "--chunk-pause", "500", output="book.m4b")
+
+    ids = work.get_all_audio_chunks_ordered()
+    durations = [wav_duration_ms(work.get_chunk_audio_path(cid)) for cid in ids]
+    texts = [work.load_chunk_text(cid) for cid in ids]
+    assert texts == ["CHAPTER 1", "Hello there.", "More text here.", "CHAPTER 2", "The end."]
+    gaps_after = [1000, 500 + 2000, 1000, 1000]
+    second_chapter_ms = sum(durations[:3]) + sum(gaps_after[:3])
+
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_chapters", "-of", "json", str(tmp_path / "book.m4b")],
+        capture_output=True, text=True, check=True,
+    )
+    starts = [round(float(c["start_time"]) * 1000) for c in json.loads(probe.stdout)["chapters"]]
+    assert starts == [0, pytest.approx(second_chapter_ms, abs=5)]

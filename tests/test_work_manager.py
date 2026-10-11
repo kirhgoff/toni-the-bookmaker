@@ -2,7 +2,7 @@ import sys
 from multiprocessing import Pool
 from pathlib import Path
 
-from toni.work_manager import WorkManager
+from toni.work_manager import WorkManager, run_fingerprint
 
 
 def _mark_completed(args):
@@ -50,6 +50,36 @@ if __name__ == "__main__":
     sys.exit(__import__("pytest").main([__file__, "-q"]))
 
 
+def test_ends_paragraph_survives_splits(tmp_path: Path) -> None:
+    work = WorkManager(tmp_path / "book.mp3", work_base=tmp_path / "work")
+    work.setup()
+    work.init_manifest(input_file=Path("in.txt"), output_file=Path("book.mp3"),
+                       model="omni", voice_file=None, sample_rate=24000,
+                       chunk_pause_ms=0, total_chunks=2, paragraph_ends=[True, False])
+
+    work.add_sub_chunk("0", "0_0", "a")
+    work.add_sub_chunk("0", "0_1", "b")
+
+    assert [work.ends_paragraph(c) for c in ("0_0", "0_1", "1")] == [False, True, False]
+
+
+def test_paragraph_ends_loads_the_manifest_once(tmp_path: Path, monkeypatch) -> None:
+    work = WorkManager(tmp_path / "book.mp3", work_base=tmp_path / "work")
+    work.setup()
+    work.init_manifest(input_file=Path("in.txt"), output_file=Path("book.mp3"),
+                       model="omni", voice_file=None, sample_rate=24000,
+                       chunk_pause_ms=0, total_chunks=2, paragraph_ends=[True, False])
+    work.add_sub_chunk("0", "0_0", "a")
+    work.add_sub_chunk("0", "0_1", "b")
+
+    loads = []
+    original = work.load_manifest
+    monkeypatch.setattr(work, "load_manifest", lambda: loads.append(1) or original())
+
+    assert work.paragraph_ends(["0_0", "0_1", "1"]) == [False, True, False]
+    assert len(loads) == 1
+
+
 def _work_with_chunks(tmp_path: Path, total: int) -> WorkManager:
     work = WorkManager(tmp_path / "book.mp3", work_base=tmp_path / "work")
     work.setup()
@@ -89,3 +119,9 @@ def test_old_manifest_loads(tmp_path: Path) -> None:
     assert manifest.seed == 0 and manifest.fingerprint == ""
     assert work.cache_path("0", "x") is None
     assert len(work.chunk_key("0", "x")) == 40
+
+
+def test_fingerprint_depends_on_the_audio_cache_version(monkeypatch) -> None:
+    before = run_fingerprint("omni", None, 0)
+    monkeypatch.setattr("toni.work_manager.AUDIO_CACHE_VERSION", "other")
+    assert run_fingerprint("omni", None, 0) != before

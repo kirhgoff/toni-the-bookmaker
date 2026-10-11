@@ -36,3 +36,7 @@ export function narratorPlan(input: NarratorInput): NarratorPlan {
   if (input.refExists && !input.redesign && input.storedSource === source) return "reuse";
   return source.startsWith("designed:") ? "design" : "clone";
 }
+
+export function isSampleReference(input: NarratorInput): boolean {
+  return input.voiceSha1 !== undefined;
+}
