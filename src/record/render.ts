@@ -6,6 +6,8 @@ import { resolveHost, type RenderHost } from "./hosts.ts";
 import { log, runOrThrow } from "./shell.ts";
 
 const BUSY_EXIT = 75;
+const MAX_MESSAGE_CHARS = 500;
+const STDERR_TAIL_CHARS = 4096;
 
 export interface RenderOptions {
   projectDir: string;
@@ -135,9 +137,14 @@ export function getArgv(job: RemoteJob, localOutput: string): string[] {
   return ["localbrains", "get", job.output, localOutput];
 }
 
+function lastLine(text: string): string {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  return (lines.at(-1) ?? "").slice(0, MAX_MESSAGE_CHARS);
+}
+
 export function renderFailure(hostName: string, code: number, stderr: string): Error | undefined {
   if (code === 0) return undefined;
-  if (code === BUSY_EXIT) return new Error(`${hostName} GPU is busy: ${stderr.trim()}`);
+  if (code === BUSY_EXIT) return new Error(`${hostName} GPU is busy or the lease was revoked: ${lastLine(stderr)}`);
   return new Error(`remote render failed (exit ${code})`);
 }
 
@@ -146,7 +153,7 @@ async function teeStderr(stream: ReadableStream<Uint8Array>): Promise<string> {
   let text = "";
   for await (const chunk of stream) {
     process.stderr.write(chunk);
-    text += decoder.decode(chunk, { stream: true });
+    text = (text + decoder.decode(chunk, { stream: true })).slice(-STDERR_TAIL_CHARS);
   }
   return text;
 }

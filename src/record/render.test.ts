@@ -73,7 +73,13 @@ test("book names are slugified so remote paths and container names stay safe", (
 
 test("exit 75 becomes the busy error carrying the CLI's holder message", () => {
   const error = renderFailure("localbrains", 75, "GPU busy: held by nightcrawl since 10:02\n");
-  expect(error?.message).toBe("localbrains GPU is busy: GPU busy: held by nightcrawl since 10:02");
+  expect(error?.message).toBe("localbrains GPU is busy or the lease was revoked: GPU busy: held by nightcrawl since 10:02");
   expect(renderFailure("localbrains", 1, "x")?.message).toBe("remote render failed (exit 1)");
   expect(renderFailure("localbrains", 0, "")).toBeUndefined();
+});
+
+test("the busy error keeps only the last stderr line, capped in length", () => {
+  const noisy = `${"progress line\n".repeat(5000)}${"x".repeat(2000)}\n\n`;
+  const message = renderFailure("localbrains", 75, noisy)?.message ?? "";
+  expect(message).toBe(`localbrains GPU is busy or the lease was revoked: ${"x".repeat(500)}`);
 });
