@@ -44,33 +44,42 @@ test("shares one chunk cache per book", () => {
   expect(args.slice(args.indexOf("--cache-dir"))[1]).toBe("/books/cache");
 });
 
-const JOB = remoteJob(OPTIONS, {}, "mac");
+const NAME = "My Book";
+const NAMED = { ...OPTIONS, name: NAME };
+const JOB = remoteJob(NAMED, {}, "mac");
 
 test("uploads staged inputs and downloads the book through the localbrains CLI", () => {
   expect(putArgv("/tmp/stage")).toEqual(["localbrains", "put", "/tmp/stage/", "toni/"]);
   expect(getArgv(JOB, "/b/run/book.m4b")).toEqual([
-    "localbrains", "get", "toni/book/run/book.m4b", "/b/run/book.m4b",
+    "localbrains", "get", `toni/${JOB.slug}/run/${JOB.slug}.m4b`, "/b/run/book.m4b",
   ]);
 });
 
 test("runs the render as a named, held podman container with per-book cache and shared models", () => {
-  const argv = podmanRunArgv(OPTIONS, JOB, {});
+  const argv = podmanRunArgv(NAMED, JOB, {});
   expect(argv.slice(0, 13)).toEqual([
     "localbrains", "podman", "--as", "toni@mac", "run",
-    "--name", "toni-book",
-    "-v", "./toni/book/run:/books",
-    "-v", "./toni/book/cache:/cache",
+    "--name", `toni-${JOB.slug}`,
+    "-v", `./toni/${JOB.slug}/run:/books`,
+    "-v", `./toni/${JOB.slug}/cache:/cache`,
     "-v", "toni-models:/models",
   ]);
   expect(argv).toContain("toni:omni");
-  expect(argv.slice(argv.indexOf("toni:omni") + 1)).toEqual(cliArgs(OPTIONS, "/books", "/books", "/cache"));
+  expect(argv.slice(argv.indexOf("toni:omni") + 1)).toEqual(cliArgs({ ...NAMED, name: JOB.slug }, "/books", "/books", "/cache"));
 });
 
-test("book names are slugified so remote paths and container names stay safe", () => {
+test("book names are slugified and hash-suffixed so remote paths stay safe and unique", () => {
   const job = remoteJob({ ...OPTIONS, name: "my ../book" }, {}, "mac");
-  expect(job.container).toBe("toni-my-.-book");
-  expect(job.rel).toBe("toni/my-.-book/run");
-  expect(job.output).toBe("toni/my-.-book/run/my-.-book.m4b");
+  expect(job.container).toMatch(/^toni-my-\.-book-[0-9a-f]{8}$/);
+  expect(job.rel).toBe(`toni/${job.slug}/run`);
+  expect(job.output).toBe(`toni/${job.slug}/run/${job.slug}.m4b`);
+  expect(remoteJob({ ...OPTIONS, name: "my ../book" }, {}, "mac").slug).toBe(job.slug);
+});
+
+test("titles without ASCII letters get distinct slugs", () => {
+  const slugOf = (name: string) => remoteJob({ ...OPTIONS, name }, {}, "mac").slug;
+  expect(slugOf("Война и мир")).not.toBe(slugOf("Анна Каренина"));
+  expect(slugOf("Война и мир")).toMatch(/^[\w.-]+$/);
 });
 
 test("exit 75 becomes the busy error carrying the CLI's holder message", () => {

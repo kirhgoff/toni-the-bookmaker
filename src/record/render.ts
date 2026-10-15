@@ -1,4 +1,5 @@
 import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { hostname, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -90,6 +91,7 @@ export async function renderLocal(o: RenderOptions): Promise<void> {
 }
 
 const slug = (value: string) => value.replace(/[^\w.-]+/g, "-").replace(/\.{2,}/g, ".");
+const bookSlug = (name: string) => `${slug(name)}-${createHash("sha1").update(name).digest("hex").slice(0, 8)}`;
 
 export interface RemoteJob {
   slug: string;
@@ -102,7 +104,7 @@ export interface RemoteJob {
 }
 
 export function remoteJob(o: RenderOptions, host: RenderHost, shortHost: string): RemoteJob {
-  const name = slug(o.name);
+  const name = bookSlug(o.name);
   const book = `toni/${name}`;
   const rel = `${book}/${slug(basename(o.runDir))}`;
   return {
