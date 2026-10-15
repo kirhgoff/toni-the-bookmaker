@@ -54,7 +54,7 @@ test("uploads staged inputs and downloads the book through the localbrains CLI",
 test("runs the render as a named, held podman container with per-book cache and shared models", () => {
   const argv = podmanRunArgv(OPTIONS, JOB, {});
   expect(argv.slice(0, 13)).toEqual([
-    "localbrains", "podman", "run", "--as", "toni@mac",
+    "localbrains", "podman", "--as", "toni@mac", "run",
     "--name", "toni-book",
     "-v", "./toni/book/run:/books",
     "-v", "./toni/book/cache:/cache",

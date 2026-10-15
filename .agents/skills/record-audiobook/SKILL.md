@@ -107,7 +107,7 @@ Format, bitrate and chapters are decided at concatenation. Delete the finished `
 
 `-H HOST` ships `source.txt` and the voice reference over rsync, runs the render in a `toni:<model>` container with the GPU, and downloads the book back into the same output folder. Prep stays local.
 
-- The render runs under `localbrains podman run --as toni@<host>`, which holds the GPU lease for its whole duration; a second client gets exit 75, shown as "GPU is busy" with the holder and since-time. `-d` detaches the laptop-side process, never the container, so the lease stays held.
+- The render runs under `localbrains podman --as toni@<host> [--wait D] run --name toni-<slug> -v ./toni/<slug>/<run>:/books …` (localbrains flags go before the podman subcommand), which holds the GPU lease for its whole duration; a second client gets exit 75, shown as "GPU is busy" with the holder and since-time. `-d` detaches the laptop-side process, never the container, so the lease stays held.
 - Images are built on the host; after changing `src/` or the `Dockerfile`, stage the build context, upload it and rebuild:
   ```bash
   d=$(mktemp -d) && mkdir "$d/toni-build" && cp -R Dockerfile pyproject.toml uv.lock README.md src "$d/toni-build/"

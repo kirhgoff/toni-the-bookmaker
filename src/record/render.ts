@@ -116,7 +116,7 @@ export function remoteJob(o: RenderOptions, host: RenderHost, shortHost: string)
 
 export function podmanRunArgv(o: RenderOptions, job: RemoteJob, env = process.env): string[] {
   return [
-    "localbrains", "podman", "run", "--as", job.holder,
+    "localbrains", "podman", "--as", job.holder, "run",
     "--name", job.container,
     "-v", `./${job.rel}:/books`,
     "-v", `./${job.cacheRel}:/cache`,

@@ -274,7 +274,8 @@ faster. Everything else (text cleanup, voice trimming) still happens locally;
 only the slow part moves, and the finished book is copied back automatically.
 
 Remote renders go through the `localbrains` CLI, which
-uploads inputs, runs the container under the GPU lease and downloads the book.
+uploads inputs, runs the container under the GPU lease and downloads the book. Its own flags precede the podman
+subcommand: `localbrains podman --as <holder> [--wait D] run --name toni-<slug> …`.
 The container image `toni:<model>` is built on the host with
 `localbrains podman build` (see the record-audiobook skill).
 
