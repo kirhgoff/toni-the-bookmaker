@@ -158,18 +158,23 @@ async function teeStderr(stream: ReadableStream<Uint8Array>): Promise<string> {
   return text;
 }
 
-async function stageInputs(o: RenderOptions, job: RemoteJob): Promise<string> {
+export async function stageInputs(o: RenderOptions, job: RemoteJob): Promise<string> {
   const stage = await mkdtemp(join(tmpdir(), "toni-stage-"));
-  const runDir = join(stage, job.slug, basename(job.rel));
-  await mkdir(runDir, { recursive: true });
-  await mkdir(join(stage, job.slug, "cache"), { recursive: true });
-  const inputs: [string, string][] = [[`${o.bookDir}/source.txt`, "source.txt"]];
-  if (o.voiceRef) inputs.push([o.voiceRef, "voice_ref.wav"]);
-  if (o.lexicon) inputs.push([o.lexicon, "lexicon.txt"]);
-  if (o.coverFile) inputs.push([`${o.bookDir}/${o.coverFile}`, o.coverFile]);
-  if (o.chapterTitlesFile) inputs.push([`${o.bookDir}/${o.chapterTitlesFile}`, o.chapterTitlesFile]);
-  for (const [from, to] of inputs) await copyFile(from, join(runDir, to));
-  return stage;
+  try {
+    const runDir = join(stage, job.slug, basename(job.rel));
+    await mkdir(runDir, { recursive: true });
+    await mkdir(join(stage, job.slug, "cache"), { recursive: true });
+    const inputs: [string, string][] = [[`${o.bookDir}/source.txt`, "source.txt"]];
+    if (o.voiceRef) inputs.push([o.voiceRef, "voice_ref.wav"]);
+    if (o.lexicon) inputs.push([o.lexicon, "lexicon.txt"]);
+    if (o.coverFile) inputs.push([`${o.bookDir}/${o.coverFile}`, o.coverFile]);
+    if (o.chapterTitlesFile) inputs.push([`${o.bookDir}/${o.chapterTitlesFile}`, o.chapterTitlesFile]);
+    for (const [from, to] of inputs) await copyFile(from, join(runDir, to));
+    return stage;
+  } catch (error) {
+    await rm(stage, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 export async function renderRemote(hostName: string, o: RenderOptions): Promise<void> {

@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
+import { readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 
-import { cliArgs, dockerEnvFlags, getArgv, podmanRunArgv, putArgv, remoteJob, renderFailure, type RenderOptions } from "./render.ts";
+import { cliArgs, dockerEnvFlags, getArgv, podmanRunArgv, putArgv, remoteJob, renderFailure, stageInputs, type RenderOptions } from "./render.ts";
 
 const OPTIONS: RenderOptions = {
   projectDir: "/p", bookDir: "/b", runDir: "/b/run", name: "book", format: "m4b",
@@ -82,4 +84,12 @@ test("the busy error keeps only the last stderr line, capped in length", () => {
   const noisy = `${"progress line\n".repeat(5000)}${"x".repeat(2000)}\n\n`;
   const message = renderFailure("localbrains", 75, noisy)?.message ?? "";
   expect(message).toBe(`localbrains GPU is busy or the lease was revoked: ${"x".repeat(500)}`);
+});
+
+test("a failed staging leaves no temp directory behind", async () => {
+  const stages = () => readdirSync(tmpdir()).filter((d) => d.startsWith("toni-stage-"));
+  const before = stages();
+  const missing = { ...OPTIONS, bookDir: "/nonexistent-book-dir" };
+  await expect(stageInputs(missing, remoteJob(missing, {}, "mac"))).rejects.toThrow();
+  expect(stages()).toEqual(before);
 });
