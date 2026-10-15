@@ -10,10 +10,9 @@ One script does everything. Do not perform its steps by hand. Render on the GPU 
 ## Steps
 
 1. **Inspect the source.** `file BOOK.txt` must say UTF-8; older `.txt` files are often in a legacy encoding (KOI8-R, CP1251, Windows-1252), so convert first with `iconv`. Note the language and the chapter heading style (see [Chapters](#chapters)). For a PDF or an OCR'd scan, run the `prepare-text` skill first and pass the cleaned `.txt`.
-2. **Check the GPU host.** Hosts live in the untracked `hosts.local.json` at the repo root (shape in `hosts.example.json`); the first entry is the default. Probe it:
+2. **Check the GPU host.** Rendering goes through the `localbrains` CLI. Hosts live in the untracked `hosts.local.json` at the repo root (`{"localbrains": {}}`, see `hosts.example.json`); the first entry is the default. Probe it:
    ```bash
-   jq -r 'to_entries[0] | "\(.key) \(.value.ssh) \(.value.identity)"' hosts.local.json
-   ssh -i ~/IDENTITY -o ConnectTimeout=5 SSH_TARGET true && echo reachable
+   localbrains status
    ```
 3. **Render.** Reachable:
    ```bash
@@ -108,10 +107,13 @@ Format, bitrate and chapters are decided at concatenation. Delete the finished `
 
 `-H HOST` ships `source.txt` and the voice reference over rsync, runs the render in a `toni:<model>` container with the GPU, and downloads the book back into the same output folder. Prep stays local.
 
-- Before the render the host runs its `leaseAcquire` command to free VRAM and takes a flock, so a second concurrent render exits with "GPU is busy".
-- Images are built on the host from a checkout of this repo; after changing `src/` or the `Dockerfile`, rsync those over and rebuild:
+- The render runs under `localbrains podman run --as toni@<host>`, which holds the GPU lease for its whole duration; a second client gets exit 75, shown as "GPU is busy" with the holder and since-time. `-d` detaches the laptop-side process, never the container, so the lease stays held.
+- Images are built on the host; after changing `src/` or the `Dockerfile`, stage the build context, upload it and rebuild:
   ```bash
-  podman build --build-arg EXTRA=<model> -t toni:<model> .
+  d=$(mktemp -d) && mkdir "$d/toni-build" && cp -R Dockerfile pyproject.toml uv.lock README.md src "$d/toni-build/"
+  localbrains put "$d/" .
+  localbrains podman build --build-arg EXTRA=<model> -t toni:<model> ./toni-build
   ```
-- **Crash signature:** `Cannot re-initialize CUDA in forked subprocess` in `render.log` with `ForkPoolWorker` respawning. The worker pool must use the spawn start method (it does since commit 1cdeb53); an image built before that fix loops forever. Kill the local `record/index.ts` process, `podman rm -f toni-<name>` on the host, rebuild, re-run.
-- **Stalled renders:** on the localbrains host (12 GB VRAM, Windows/WSL; box operations live in `~/Projects/localbrains`) two workers once filled VRAM to 11.5 GB and generation silently slowed to ~760 s/chunk — WSL spills VRAM into shared system memory instead of failing. One worker (`-w 1`) ran at ~1.3 s/chunk. Signature: progress stuck, GPU at 100% util, VRAM near full. Fix: kill the local `record/index.ts` process, `podman rm -f toni-<name>` on the host (via the host's configured shell, e.g. `ssh ... 'wsl -d Ubuntu -- bash -s' <<'EOF'`), re-run with `-w 1` — completed chunks are kept. Also: if the host sleeps or reboots, SSH drops ("Operation timed out") and the local driver exits; re-run the identical command to resume.
+- **Crash signature:** `Cannot re-initialize CUDA in forked subprocess` in `render.log` with `ForkPoolWorker` respawning. The worker pool must use the spawn start method (it does since commit 1cdeb53); an image built before that fix loops forever. Kill the local `record/index.ts` process, `localbrains podman rm -f toni-<name>`, rebuild, re-run.
+- **Stalled renders:** on the localbrains host (12 GB VRAM, Windows/WSL; box operations live in `~/Projects/localbrains`) two workers once filled VRAM to 11.5 GB and generation silently slowed to ~760 s/chunk — WSL spills VRAM into shared system memory instead of failing. One worker (`-w 1`) ran at ~1.3 s/chunk. Signature: progress stuck, GPU at 100% util, VRAM near full. Fix: kill the local `record/index.ts` process, `localbrains podman rm -f toni-<name>`, re-run with `-w 1` — completed chunks are kept. Also: if the host sleeps or reboots, SSH drops ("Operation timed out") and the local driver exits; re-run the identical command to resume.
+- **Stuck lease:** `localbrains status` shows the holder; after removing the container, `localbrains release --force` frees a lease that outlived its render.

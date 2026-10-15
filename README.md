@@ -273,15 +273,13 @@ actual narration there instead of running it on your Mac — it's noticeably
 faster. Everything else (text cleanup, voice trimming) still happens locally;
 only the slow part moves, and the finished book is copied back automatically.
 
-The remote machine needs Docker or Podman with GPU access, and a container
-image built from this repo:
+Remote renders go through the `localbrains` CLI, which
+uploads inputs, runs the container under the GPU lease and downloads the book.
+The container image `toni:<model>` is built on the host with
+`localbrains podman build` (see the record-audiobook skill).
 
-```bash
-podman build --build-arg EXTRA=omni -t toni:omni .
-```
-
-Hosts are defined in `hosts.local.json` at the repo root, which stays out of
-git; copy `hosts.example.json` to get started.
+A host is just a name in `hosts.local.json` at the repo root, which stays out
+of git; copy `hosts.example.json` to get started.
 
 ## What's inside
 

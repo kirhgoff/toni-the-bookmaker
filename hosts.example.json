@@ -1,9 +1,3 @@
 {
-  "render-host": {
-    "ssh": "user@render-host",
-    "identity": ".ssh/id_ed25519",
-    "shell": "bash -s",
-    "workdir": "toni-render",
-    "runtime": "docker"
-  }
+  "localbrains": {}
 }
