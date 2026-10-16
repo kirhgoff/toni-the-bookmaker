@@ -4,7 +4,7 @@ Toni is a Bun/TypeScript audiobook driver with a Next.js App Router web interfac
 
 ## Boundaries and conventions
 
-- Before editing, read the matching skill in `.claude/skills/`: `controllers` for `app/`, `service-architecture` for `src/web/`, `module-boundaries` for imports/new files, `error-handling` for failures, and `better-ui` for presentation work.
+- Before editing, read the matching skill in `.agents/skills/`: `controllers` for `app/`, `service-architecture` for `src/web/`, `module-boundaries` for imports/new files, `error-handling` for failures, and `better-ui` for presentation work.
 - Keep route handlers small: authorize, validate request boundaries, invoke a service, and map results to HTTP responses.
 - Keep uploads, job state, audio and host credentials out of git. Configure storage and runtime behavior through environment variables; `hosts.local.json` is local-only.
 - Never expose server filesystem paths or secrets through API responses. Constrain uploaded file types/sizes, validate all render options, and confine downloads to completed jobs.
