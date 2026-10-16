@@ -40,11 +40,6 @@ export async function requireCommand(name: string, hint: string): Promise<void> 
   if (code !== 0) throw new Error(`${name} is not installed. ${hint}`);
 }
 
-/** Single-quote a string for safe interpolation into a remote bash script. */
-export function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'\\''`)}'`;
-}
-
 export function log(message: string): void {
   const now = new Date().toTimeString().slice(0, 8);
   console.log(`[${now}] ${message}`);

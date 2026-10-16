@@ -1,7 +1,14 @@
-import { basename } from "node:path";
+import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { hostname, tmpdir } from "node:os";
+import { basename, join } from "node:path";
 
-import { gpuArgsOf, resolveHost, runtimeOf, type RenderHost } from "./hosts.ts";
-import { log, runOrThrow, shellQuote } from "./shell.ts";
+import { resolveHost, type RenderHost } from "./hosts.ts";
+import { log, runOrThrow } from "./shell.ts";
+
+const BUSY_EXIT = 75;
+const MAX_MESSAGE_CHARS = 500;
+const STDERR_TAIL_CHARS = 4096;
 
 export interface RenderOptions {
   projectDir: string;
@@ -55,13 +62,13 @@ export function cliArgs(
 
 export function dockerEnvFlags(o: RenderOptions, env: Record<string, string | undefined> = process.env): string[] {
   return [
-    "-e", `TONI_LANGUAGE=${shellQuote(o.language)}`,
-    ...(o.refText ? ["-e", `TONI_REF_TEXT=${shellQuote(o.refText)}`] : []),
-    ...(o.voiceInstruction ? ["-e", `TONI_OMNI_INSTRUCT=${shellQuote(o.voiceInstruction)}`] : []),
-    ...(env.TONI_NORMALIZE ? ["-e", `TONI_NORMALIZE=${shellQuote(env.TONI_NORMALIZE)}`] : []),
+    "-e", `TONI_LANGUAGE=${o.language}`,
+    ...(o.refText ? ["-e", `TONI_REF_TEXT=${o.refText}`] : []),
+    ...(o.voiceInstruction ? ["-e", `TONI_OMNI_INSTRUCT=${o.voiceInstruction}`] : []),
+    ...(env.TONI_NORMALIZE ? ["-e", `TONI_NORMALIZE=${env.TONI_NORMALIZE}`] : []),
     ...Object.entries(env)
       .filter(([k, v]) => (k.startsWith("TONI_QC") || k === "TONI_BATCH" || k === "TONI_OMNI_COMPILE") && v !== undefined)
-      .flatMap(([k, v]) => ["-e", `${k}=${shellQuote(v!)}`]),
+      .flatMap(([k, v]) => ["-e", `${k}=${v!}`]),
   ];
 }
 
@@ -83,90 +90,114 @@ export async function renderLocal(o: RenderOptions): Promise<void> {
   if (code !== 0) throw new Error(`render failed (exit ${code})`);
 }
 
-export function remoteScript(o: RenderOptions, host: RenderHost, jobDir: string, cacheDir: string): string {
-  const image = host.image ?? `toni:${o.model}`;
-  const runtime = runtimeOf(host);
-  const gpuArgs = gpuArgsOf(host).join(" ");
-  const envExports = Object.entries(host.env ?? {})
-    .map(([k, v]) => `export ${k}=${v}`).join("\n");
-  const dockerEnv = dockerEnvFlags(o).join(" ");
+const slug = (value: string) => value.replace(/[^\w.-]+/g, "-").replace(/\.{2,}/g, ".");
+const bookSlug = (name: string) => `${slug(name)}-${createHash("sha1").update(name).digest("hex").slice(0, 8)}`;
 
+export interface RemoteJob {
+  slug: string;
+  holder: string;
+  container: string;
+  rel: string;
+  cacheRel: string;
+  image: string;
+  output: string;
+}
+
+export function remoteJob(o: RenderOptions, host: RenderHost, shortHost: string): RemoteJob {
+  const name = bookSlug(o.name);
+  const book = `toni/${name}`;
+  const rel = `${book}/${slug(basename(o.runDir))}`;
+  return {
+    slug: name,
+    holder: `toni@${shortHost}`,
+    container: `toni-${name}`,
+    rel,
+    cacheRel: `${book}/cache`,
+    image: host.image ?? `toni:${o.model}`,
+    output: `${rel}/${name}.${o.format}`,
+  };
+}
+
+export function podmanRunArgv(o: RenderOptions, job: RemoteJob, env: Record<string, string | undefined> = process.env): string[] {
   return [
-    "set -e",
-    envExports,
-    `WORKDIR=${shellQuote(jobDir)}`,
-    "exec 9>/tmp/toni-gpu.lock",
-    'flock -n 9 || { echo "GPU is busy: another render holds the lease" >&2; exit 75; }',
-    host.leaseAcquire ?? "",
-    // A container outlives the ssh session that started it, so name it: kill
-    // any leftover from an interrupted run, and take it down on exit.
-    `CONTAINER=${shellQuote(`toni-${o.name.replace(/[^\w.-]+/g, "-")}`)}`,
-    `${runtime} rm -f "$CONTAINER" >/dev/null 2>&1 || true`,
-    `trap '${runtime} rm -f "$CONTAINER" >/dev/null 2>&1' EXIT INT TERM HUP`,
-    `${runtime} run --rm --name "$CONTAINER" ${gpuArgs} -v "$WORKDIR:/books" ` +
-      `-v ${shellQuote(cacheDir)}:/cache -v toni-models:/models ${dockerEnv} ` +
-      `${image} ${cliArgs(o, "/books", "/books", "/cache").map(shellQuote).join(" ")}`,
-  ].filter(Boolean).join("\n");
+    "localbrains", "podman", "--as", job.holder, "run",
+    "--name", job.container,
+    "-v", `./${job.rel}:/books`,
+    "-v", `./${job.cacheRel}:/cache`,
+    "-v", "toni-models:/models",
+    ...dockerEnvFlags(o, env),
+    job.image,
+    ...cliArgs({ ...o, name: job.slug }, "/books", "/books", "/cache"),
+  ];
+}
+
+export function putArgv(stageDir: string): string[] {
+  return ["localbrains", "put", `${stageDir}/`, "toni/"];
+}
+
+export function getArgv(job: RemoteJob, localOutput: string): string[] {
+  return ["localbrains", "get", job.output, localOutput];
+}
+
+function lastLine(text: string): string {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  return (lines.at(-1) ?? "").slice(0, MAX_MESSAGE_CHARS);
+}
+
+export function renderFailure(hostName: string, code: number, stderr: string): Error | undefined {
+  if (code === 0) return undefined;
+  if (code === BUSY_EXIT) return new Error(`${hostName} GPU is busy or the lease was revoked: ${lastLine(stderr)}`);
+  return new Error(`remote render failed (exit ${code})`);
+}
+
+async function teeStderr(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const decoder = new TextDecoder();
+  let text = "";
+  for await (const chunk of stream) {
+    process.stderr.write(chunk);
+    text = (text + decoder.decode(chunk, { stream: true })).slice(-STDERR_TAIL_CHARS);
+  }
+  return text;
+}
+
+export async function stageInputs(o: RenderOptions, job: RemoteJob): Promise<string> {
+  const stage = await mkdtemp(join(tmpdir(), "toni-stage-"));
+  try {
+    const runDir = join(stage, job.slug, basename(job.rel));
+    await mkdir(runDir, { recursive: true });
+    await mkdir(join(stage, job.slug, "cache"), { recursive: true });
+    const inputs: [string, string][] = [[`${o.bookDir}/source.txt`, "source.txt"]];
+    if (o.voiceRef) inputs.push([o.voiceRef, "voice_ref.wav"]);
+    if (o.lexicon) inputs.push([o.lexicon, "lexicon.txt"]);
+    if (o.coverFile) inputs.push([`${o.bookDir}/${o.coverFile}`, o.coverFile]);
+    if (o.chapterTitlesFile) inputs.push([`${o.bookDir}/${o.chapterTitlesFile}`, o.chapterTitlesFile]);
+    for (const [from, to] of inputs) await copyFile(from, join(runDir, to));
+    return stage;
+  } catch (error) {
+    await rm(stage, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 export async function renderRemote(hostName: string, o: RenderOptions): Promise<void> {
   const host = resolveHost(hostName);
-  const key = `${process.env.HOME}/${host.identity}`;
-  const sshCmd = `ssh -i ${key} -o ConnectTimeout=10`;
-  const ssh = ["ssh", "-i", key, "-o", "ConnectTimeout=10", host.ssh];
-
-  const remoteSh = async (script: string) => {
-    const proc = Bun.spawn([...ssh, host.shell], {
-      stdin: new TextEncoder().encode(`${script}\n`),
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const out = await new Response(proc.stdout).text();
-    return { out: out.trim(), code: await proc.exited };
-  };
-
-  const { out: remoteHome, code: homeCode } = await remoteSh("printf %s \"$HOME\"");
-  if (homeCode !== 0 || !remoteHome.startsWith("/")) {
-    throw new Error(`could not resolve remote home on ${hostName} (got "${remoteHome}")`);
-  }
-  const bookDir = `${remoteHome}/${host.workdir}/${o.name}`;
-  const jobDir = `${bookDir}/${basename(o.runDir)}`;
-  const cacheDir = `${bookDir}/cache`;
-
-  const rsync = (from: string, to: string) => {
-    const cmd = ["rsync", "-a", "--partial", "--inplace", "-e", sshCmd];
-    if (host.rsyncPath) cmd.push(`--rsync-path=${host.rsyncPath}`);
-    return runOrThrow([...cmd, from, to], { inherit: true });
-  };
+  const job = remoteJob(o, host, hostname().split(".")[0]!);
 
   log(`Rendering on ${hostName} with ${o.workers} workers`);
 
   log("  uploading inputs");
-  await remoteSh(`mkdir -p ${shellQuote(jobDir)} ${shellQuote(cacheDir)}`);
-  await rsync(`${o.bookDir}/source.txt`, `${host.ssh}:${jobDir}/source.txt`);
-  if (o.voiceRef) await rsync(o.voiceRef, `${host.ssh}:${jobDir}/voice_ref.wav`);
-  if (o.lexicon) await rsync(o.lexicon, `${host.ssh}:${jobDir}/lexicon.txt`);
+  const stage = await stageInputs(o, job);
+  try {
+    await runOrThrow(putArgv(stage), { inherit: true });
+  } finally {
+    await rm(stage, { recursive: true, force: true });
+  }
 
-  if (o.coverFile) await rsync(`${o.bookDir}/${o.coverFile}`, `${host.ssh}:${jobDir}/${o.coverFile}`);
-  if (o.chapterTitlesFile) await rsync(`${o.bookDir}/${o.chapterTitlesFile}`, `${host.ssh}:${jobDir}/${o.chapterTitlesFile}`);
-
-  const script = remoteScript(o, host, jobDir, cacheDir);
-
-  // Ship the script as a file rather than on stdin: commands inside it
-  // (docker, ollama) read stdin themselves and would swallow the remainder.
-  const scriptPath = `${o.runDir}/.render.sh`;
-  await Bun.write(scriptPath, `${script}\n`);
-  await rsync(scriptPath, `${host.ssh}:${jobDir}/run.sh`);
-
-  const proc = Bun.spawn([...ssh, host.shell], {
-    stdin: new TextEncoder().encode(`bash ${shellQuote(`${jobDir}/run.sh`)} < /dev/null\n`),
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  const code = await proc.exited;
-  if (code === 75) throw new Error(`${hostName} GPU is busy (another render holds the lease)`);
-  if (code !== 0) throw new Error(`remote render failed (exit ${code})`);
+  const proc = Bun.spawn(podmanRunArgv(o, job), { stdout: "inherit", stderr: "pipe" });
+  const [stderr, code] = await Promise.all([teeStderr(proc.stderr), proc.exited]);
+  const failure = renderFailure(hostName, code, stderr);
+  if (failure) throw failure;
 
   log("  downloading result");
-  await rsync(`${host.ssh}:${jobDir}/${o.name}.${o.format}`, `${o.runDir}/${o.name}.${o.format}`);
+  await runOrThrow(getArgv(job, `${o.runDir}/${o.name}.${o.format}`), { inherit: true });
 }
