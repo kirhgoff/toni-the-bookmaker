@@ -118,7 +118,7 @@ export function remoteJob(o: RenderOptions, host: RenderHost, shortHost: string)
   };
 }
 
-export function podmanRunArgv(o: RenderOptions, job: RemoteJob, env = process.env): string[] {
+export function podmanRunArgv(o: RenderOptions, job: RemoteJob, env: Record<string, string | undefined> = process.env): string[] {
   return [
     "localbrains", "podman", "--as", job.holder, "run",
     "--name", job.container,
