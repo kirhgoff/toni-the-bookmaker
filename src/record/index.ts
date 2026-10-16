@@ -18,6 +18,7 @@ const USAGE = `Record an audiobook from a text, PDF or EPUB file.
 
   -i, --input INPUT     Source .txt, .pdf or .epub (required)
   -v, --voice VOICE     Voice sample to clone. Omit for a narrator designed once and reused (omni: en, ru).
+  --voice-instruction TEXT  Describe a designed OmniVoice narrator.
   --redesign-voice      Prepare the voice reference again (a fresh clone of -v, or the designed narrator for the current --voice-seed)
   -n, --name NAME       Output folder name (default: input filename stem)
   -t, --tag TAG         Run folder suffix explaining the run (default: <model>-<host or local>)
@@ -120,9 +121,10 @@ async function main(): Promise<void> {
     options: {
       input: { type: "string", short: "i" },
       voice: { type: "string", short: "v" },
+      "voice-instruction": { type: "string" },
       name: { type: "string", short: "n" },
       tag: { type: "string", short: "t" },
-      outputDir: { type: "string", short: "o" },
+      "output-dir": { type: "string", short: "o" },
       workers: { type: "string", short: "w", default: "2" },
       bitrate: { type: "string", short: "b", default: "64k" },
       pause: { type: "string", short: "p", default: "500" },
@@ -146,7 +148,7 @@ async function main(): Promise<void> {
 
   if (values.help || !values.input) {
     console.log(USAGE);
-    process.exit(values.input ? 0 : 1);
+    process.exit(values.help || values.input ? 0 : 1);
   }
   if (!["m4b", "mp3"].includes(values.format!)) {
     throw new Error(`Unsupported format: ${values.format} (use m4b or mp3)`);
@@ -160,7 +162,7 @@ async function main(): Promise<void> {
   if (voice && !(await Bun.file(voice).exists())) throw new Error(`Voice sample not found: ${voice}`);
 
   const name = values.name ?? basename(input).replace(/\.[^.]+$/, "");
-  const library = values.outputDir ?? process.env.AUDIOBOOK_LIBRARY ?? `${process.env.HOME}/Downloads/audiobooks`;
+  const library = values["output-dir"] ?? process.env.AUDIOBOOK_LIBRARY ?? `${process.env.HOME}/Downloads/audiobooks`;
   const bookDir = `${library}/${name}`;
   await mkdir(bookDir, { recursive: true });
 
@@ -272,6 +274,7 @@ async function main(): Promise<void> {
     ...(values.chapters ? { chapterPattern: values.chapters } : {}),
     ...(coverFile ? { coverFile } : {}),
     ...(chapterTitlesFile ? { chapterTitlesFile } : {}),
+    ...(values["voice-instruction"] ? { voiceInstruction: values["voice-instruction"] } : {}),
     ...(plan !== "none" ? { voiceRef } : {}),
     ...((await Bun.file(lexicon).exists()) ? { lexicon } : {}),
     ...((await Bun.file(refTextPath).exists())

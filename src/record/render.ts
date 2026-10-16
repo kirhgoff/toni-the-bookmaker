@@ -18,6 +18,7 @@ export interface RenderOptions {
   batch?: string;
   qc: boolean;
   chapterPattern?: string;
+  voiceInstruction?: string;
   voiceRef?: string;
   lexicon?: string;
   refText?: string;
@@ -52,10 +53,11 @@ export function cliArgs(
   return args;
 }
 
-export function dockerEnvFlags(o: RenderOptions, env = process.env): string[] {
+export function dockerEnvFlags(o: RenderOptions, env: Record<string, string | undefined> = process.env): string[] {
   return [
     "-e", `TONI_LANGUAGE=${shellQuote(o.language)}`,
     ...(o.refText ? ["-e", `TONI_REF_TEXT=${shellQuote(o.refText)}`] : []),
+    ...(o.voiceInstruction ? ["-e", `TONI_OMNI_INSTRUCT=${shellQuote(o.voiceInstruction)}`] : []),
     ...(env.TONI_NORMALIZE ? ["-e", `TONI_NORMALIZE=${shellQuote(env.TONI_NORMALIZE)}`] : []),
     ...Object.entries(env)
       .filter(([k, v]) => (k.startsWith("TONI_QC") || k === "TONI_BATCH" || k === "TONI_OMNI_COMPILE") && v !== undefined)
@@ -70,6 +72,7 @@ export async function renderLocal(o: RenderOptions): Promise<void> {
     TONI_LANGUAGE: o.language,
   };
   if (o.refText) env.TONI_REF_TEXT = o.refText;
+  if (o.voiceInstruction) env.TONI_OMNI_INSTRUCT = o.voiceInstruction;
 
   const proc = Bun.spawn(
     ["uv", "run", "--project", o.projectDir, "--extra", o.model,
