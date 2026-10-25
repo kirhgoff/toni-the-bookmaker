@@ -19,12 +19,19 @@ class FakeModel:
 
 
 @pytest.fixture
-def cuda_engine(monkeypatch):
-    torch = pytest.importorskip("torch")
+def torch(monkeypatch):
+    fake = types.SimpleNamespace(compile=lambda module: "compiled", cuda=types.SimpleNamespace(mem_get_info=None))
+    monkeypatch.setitem(sys.modules, "torch", fake)
+    config = types.ModuleType("omnivoice.models.omnivoice")
+    config.OmniVoiceGenerationConfig = lambda **kwargs: kwargs
+    monkeypatch.setitem(sys.modules, "omnivoice.models.omnivoice", config)
+    return fake
 
+
+@pytest.fixture
+def cuda_engine(torch, monkeypatch):
     monkeypatch.setenv("TONI_OMNI_COMPILE", "1")
     monkeypatch.setitem(sys.modules, "triton", types.ModuleType("triton"))
-    monkeypatch.setattr(torch, "compile", lambda module: "compiled")
     engine = OmniVoiceEngine()
     monkeypatch.setattr(engine, "_resolve_device", lambda: "cuda")
     return engine
@@ -75,9 +82,7 @@ def test_numbered_cuda_device_compiles(cuda_engine, monkeypatch) -> None:
     assert cuda_engine._model.llm == "compiled"
 
 
-def test_numbered_cuda_device_sizes_batches_by_that_device(monkeypatch) -> None:
-    torch = pytest.importorskip("torch")
-
+def test_numbered_cuda_device_sizes_batches_by_that_device(torch, monkeypatch) -> None:
     asked = []
     monkeypatch.setenv("TONI_OMNI_DEVICE", "cuda:1")
     monkeypatch.setattr(torch.cuda, "mem_get_info", lambda device: asked.append(device) or (20 * 2**30, 0))
