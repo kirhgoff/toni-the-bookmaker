@@ -1,0 +1,8 @@
+[files]
+extend-exclude = ["docs/*.html", "tests/test_lexicon.py", "uv.lock", "bun.lock"]
+
+[default.extend-words]
+opf = "opf"
+ded = "ded"
+Noo = "Noo"
+Yorrk = "Yorrk"

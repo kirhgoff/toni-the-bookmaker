@@ -49,7 +49,7 @@ build-backend = "hatchling.build"
 packages = ["src/toni"]
 
 [dependency-groups]
-dev = []
+dev = ["pytest>=8", "soundfile>=0.12.1"]
 
 [tool.uv]
 # torchcodec 0.10 cannot load Homebrew ffmpeg 9 on macOS and transformers imports it whenever installed
@@ -63,3 +63,24 @@ conflicts = [
         { extra = "qwen" },
     ],
 ]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint.per-file-ignores]
+"src/toni/cli.py" = ["BLE001"]
+"src/toni/tts/omni.py" = ["BLE001"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.deptry]
+known_first_party = ["toni"]
+
+[tool.deptry.package_module_name_map]
+pymupdf = "fitz"
+kani-tts-2 = "kani_tts"
+
+[tool.deptry.per_rule_ignores]
+DEP001 = ["triton", "huggingface_hub"]
+DEP002 = ["torchaudio"]
