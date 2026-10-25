@@ -12,8 +12,8 @@ local fast = new Mapping<String, Step> {
         check = "zizmor --no-progress {{ files }}"
     }
     ["agnix"] {
-        glob = List("AGENTS.md", "CLAUDE.md", ".agents/skills/**/*")
-        check = "agnix ."
+        glob = List("AGENTS.md", "CLAUDE.md", ".agents/skills/**/*", ".agnix.toml")
+        check = "agnix --strict ."
     }
     ["ruff-check"] {
         glob = List("**/*.py")
