@@ -37,10 +37,7 @@ def extract_text(file_path: Path) -> str:
     elif suffix in (".txt", ".text", ".md", ".markdown"):
         return extract_from_text(file_path)
     else:
-        raise ValueError(
-            f"Unsupported file format: {suffix}. "
-            "Supported formats: .pdf, .epub, .txt, .text, .md"
-        )
+        raise ValueError(f"Unsupported file format: {suffix}. Supported formats: .pdf, .epub, .txt, .text, .md")
 
 
 def extract_from_pdf(file_path: Path) -> str:
@@ -86,8 +83,20 @@ MAX_UNTAGGED_FRONT_MATTER_WORDS = 400
 FRONT_MATTER_TYPES = {"cover", "copyright-page", "toc", "titlepage"}
 XML_ENTITIES = {"amp", "lt", "gt", "quot", "apos"}
 BLOCK_TAGS = {
-    "p", "div", "br", "li", "tr", "blockquote", "section", "article",
-    "h1", "h2", "h3", "h4", "h5", "h6",
+    "p",
+    "div",
+    "br",
+    "li",
+    "tr",
+    "blockquote",
+    "section",
+    "article",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
 }
 ANY_HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 HEADING_TAGS = {"h1", "h2", "h3"}
@@ -194,8 +203,10 @@ def _parse_markup(archive: zipfile.ZipFile, name: str):
     markup = _decode_markup(_read_entry(archive, name))
     markup = re.sub(
         r"&([A-Za-z][A-Za-z0-9]*);",
-        lambda m: m.group(0) if m.group(1) in XML_ENTITIES else (
-            "" if html.unescape(m.group(0)) == m.group(0) else html.unescape(m.group(0))
+        lambda m: (
+            m.group(0)
+            if m.group(1) in XML_ENTITIES
+            else ("" if html.unescape(m.group(0)) == m.group(0) else html.unescape(m.group(0)))
         ),
         markup,
     )
@@ -203,12 +214,7 @@ def _parse_markup(archive: zipfile.ZipFile, name: str):
 
 
 def _epub_types(element) -> set[str]:
-    return {
-        token
-        for key, value in element.attrib.items()
-        if _local(key) == "type"
-        for token in value.split()
-    }
+    return {token for key, value in element.attrib.items() if _local(key) == "type" for token in value.split()}
 
 
 def _link_text(link) -> str:

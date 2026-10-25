@@ -76,8 +76,16 @@ def test_cached_pass_is_rejudged_with_current_thresholds(fake, tmp_path) -> None
     takes, transcribed = len(fake.takes), fake.transcribed
 
     work = run_toni(
-        tmp_path / "b", THREE, "--cache-dir", str(cache),
-        "--qc-wer", "0.1", "--qc-retries", "0", "--max-retries", "0",
+        tmp_path / "b",
+        THREE,
+        "--cache-dir",
+        str(cache),
+        "--qc-wer",
+        "0.1",
+        "--qc-retries",
+        "0",
+        "--max-retries",
+        "0",
     )
     qc = work.load_manifest().chunks["1"]["qc"]
     assert (qc["verdict"], qc["wer"]) == ("fail", 0.25)
@@ -92,9 +100,7 @@ def test_gave_up_chunk_retries_when_the_budget_grows(fake, tmp_path) -> None:
     assert [t for t, _ in fake.takes].count(CHUNKS[1]) == 2
     transcribed = fake.transcribed
 
-    work = run_toni(
-        tmp_path / "b", THREE, "--cache-dir", str(cache), "--qc-retries", "3", "--max-retries", "0"
-    )
+    work = run_toni(tmp_path / "b", THREE, "--cache-dir", str(cache), "--qc-retries", "3", "--max-retries", "0")
     assert [t for t, _ in fake.takes].count(CHUNKS[1]) == 4
     assert fake.transcribed == transcribed + 2
     chunk = work.load_manifest().chunks["1"]

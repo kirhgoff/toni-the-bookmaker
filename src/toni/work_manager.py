@@ -4,14 +4,13 @@ import fcntl
 import hashlib
 import json
 import os
-from contextlib import contextmanager
 import shutil
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from toni.audio_encoder import wav_is_valid
-
 
 MANIFEST_VERSION = "1.2"
 AUDIO_CACHE_VERSION = "trim-v1"
@@ -275,12 +274,8 @@ class WorkManager:
             sample_rate=sample_rate,
             chunk_pause_ms=chunk_pause_ms,
             total_chunks=total_chunks,
-            copied_input=str(copied_input.relative_to(self.work_dir))
-            if copied_input
-            else None,
-            copied_voice=str(copied_voice.relative_to(self.work_dir))
-            if copied_voice
-            else None,
+            copied_input=str(copied_input.relative_to(self.work_dir)) if copied_input else None,
+            copied_voice=str(copied_voice.relative_to(self.work_dir)) if copied_voice else None,
             seed=seed,
             fingerprint=fingerprint,
             cache_dir=str(cache_dir) if cache_dir else None,
@@ -390,47 +385,30 @@ class WorkManager:
     def get_pending_chunks(self) -> list[str]:
         """Get list of chunk IDs that are pending."""
         manifest = self.load_manifest()
-        return [
-            chunk_id
-            for chunk_id, data in manifest.chunks.items()
-            if data.get("status") == "pending"
-        ]
+        return [chunk_id for chunk_id, data in manifest.chunks.items() if data.get("status") == "pending"]
 
     def get_completed_chunks(self) -> list[str]:
         """Get list of chunk IDs that are completed."""
         manifest = self.load_manifest()
-        return [
-            chunk_id
-            for chunk_id, data in manifest.chunks.items()
-            if data.get("status") == "completed"
-        ]
+        return [chunk_id for chunk_id, data in manifest.chunks.items() if data.get("status") == "completed"]
 
     def get_unchecked_chunks(self) -> list[str]:
         manifest = self.load_manifest()
         return [
             chunk_id
             for chunk_id, data in manifest.chunks.items()
-            if data.get("status") == "completed"
-            and data.get("qc", {}).get("verdict") in (None, "error")
+            if data.get("status") == "completed" and data.get("qc", {}).get("verdict") in (None, "error")
         ]
 
     def get_failed_chunks(self) -> list[str]:
         """Get list of chunk IDs that failed."""
         manifest = self.load_manifest()
-        return [
-            chunk_id
-            for chunk_id, data in manifest.chunks.items()
-            if data.get("status") == "failed"
-        ]
+        return [chunk_id for chunk_id, data in manifest.chunks.items() if data.get("status") == "failed"]
 
     def get_split_chunks(self) -> list[str]:
         """Get list of chunk IDs that were split into sub-chunks."""
         manifest = self.load_manifest()
-        return [
-            chunk_id
-            for chunk_id, data in manifest.chunks.items()
-            if data.get("status") == "split"
-        ]
+        return [chunk_id for chunk_id, data in manifest.chunks.items() if data.get("status") == "split"]
 
     def add_sub_chunk(self, parent_id: str, sub_id: str, text: str) -> None:
         """Add a sub-chunk created from splitting a failed chunk."""
@@ -451,9 +429,7 @@ class WorkManager:
 
     def chunk_key(self, chunk_id: str, text: str) -> str:
         speed = self.get_chunk_speed(chunk_id)
-        return hashlib.sha1(
-            f"{self.load_manifest().fingerprint}\0{speed}\0{text}".encode("utf-8")
-        ).hexdigest()
+        return hashlib.sha1(f"{self.load_manifest().fingerprint}\0{speed}\0{text}".encode()).hexdigest()
 
     def cache_path(self, chunk_id: str, text: str) -> Path | None:
         cache_dir = self.load_manifest().cache_dir
@@ -506,11 +482,7 @@ class WorkManager:
             target.with_suffix(".qc.json").unlink(missing_ok=True)
 
     def reset_invalid_audio(self) -> list[str]:
-        bad = [
-            cid
-            for cid in self.get_completed_chunks()
-            if not wav_is_valid(self.get_chunk_audio_path(cid))
-        ]
+        bad = [cid for cid in self.get_completed_chunks() if not wav_is_valid(self.get_chunk_audio_path(cid))]
         for cid in bad:
             self.set_chunk_status(cid, "pending")
         return bad
@@ -537,9 +509,7 @@ class WorkManager:
                 data = chunks.get(current, {})
                 total += data.get("pause_ms", 0)
                 parent = data.get("parent")
-                siblings = sorted(
-                    chunks.get(parent, {}).get("sub_chunks", []), key=_chunk_sort_key
-                )
+                siblings = sorted(chunks.get(parent, {}).get("sub_chunks", []), key=_chunk_sort_key)
                 current = parent if siblings and siblings[-1] == current else None
             pauses.append(total)
         return pauses
@@ -554,9 +524,7 @@ class WorkManager:
 
         return result
 
-    def _collect_audio_chunks(
-        self, manifest: Manifest, chunk_id: str, result: list[str]
-    ) -> None:
+    def _collect_audio_chunks(self, manifest: Manifest, chunk_id: str, result: list[str]) -> None:
         """Append chunk_id's audio, descending into sub-chunks of any depth."""
         chunk_data = manifest.chunks.get(chunk_id, {})
         status = chunk_data.get("status", "pending")
@@ -583,9 +551,7 @@ class WorkManager:
         parent = chunk_data.get("parent")
         if not parent:
             return False
-        siblings = sorted(
-            manifest.chunks[parent].get("sub_chunks", []), key=_chunk_sort_key
-        )
+        siblings = sorted(manifest.chunks[parent].get("sub_chunks", []), key=_chunk_sort_key)
         return siblings[-1] == chunk_id and self._ends_paragraph(manifest, parent)
 
     def get_progress_summary(self) -> dict:

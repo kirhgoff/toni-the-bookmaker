@@ -1,16 +1,14 @@
 """TTS engine registry and factory functions."""
 
-from typing import Type
-
 from toni.tts.base import TTSEngine
 
-_ENGINES: dict[str, Type[TTSEngine]] = {}
+_ENGINES: dict[str, type[TTSEngine]] = {}
 
 
 def register_engine(name: str) -> callable:
     """Decorator to register a TTS engine."""
 
-    def decorator(cls: Type[TTSEngine]) -> Type[TTSEngine]:
+    def decorator(cls: type[TTSEngine]) -> type[TTSEngine]:
         _ENGINES[name] = cls
         return cls
 
@@ -51,9 +49,7 @@ def get_engine(name: str) -> TTSEngine:
         return QwenTTSEngine()
     else:
         available = list_engines()
-        raise ValueError(
-            f"Unknown TTS engine: '{name}'. Available engines: {available}"
-        )
+        raise ValueError(f"Unknown TTS engine: '{name}'. Available engines: {available}")
 
 
 def list_engines() -> list[str]:

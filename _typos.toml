@@ -1,0 +1,10 @@
+[files]
+extend-exclude = ["docs/*.html", "uv.lock", "bun.lock"]
+
+[default.extend-words]
+opf = "opf"
+ded = "ded"
+Noo = "Noo"
+Yorrk = "Yorrk"
+seh = "seh"
+ba = "ba"

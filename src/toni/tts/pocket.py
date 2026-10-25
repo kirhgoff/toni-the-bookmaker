@@ -1,7 +1,7 @@
 """Pocket TTS engine implementation."""
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 
@@ -38,9 +38,7 @@ class PocketTTSEngine(TTSEngine):
         try:
             from pocket_tts import TTSModel
         except ImportError:
-            raise ImportError(
-                "pocket-tts is not installed. Install it with: uv sync --extra pocket"
-            )
+            raise ImportError("pocket-tts is not installed. Install it with: uv sync --extra pocket")
 
         self._model = TTSModel.load_model()
 
@@ -56,9 +54,7 @@ class PocketTTSEngine(TTSEngine):
         if voice_sample is not None:
             voice_state = self._model.get_state_for_audio_prompt(str(voice_sample))
         else:
-            voice_state = self._model.get_state_for_audio_prompt(
-                "hf://kyutai/tts-voices/alba-mackenna/casual.wav"
-            )
+            voice_state = self._model.get_state_for_audio_prompt("hf://kyutai/tts-voices/alba-mackenna/casual.wav")
 
         if progress_callback:
             progress_callback(0.1)

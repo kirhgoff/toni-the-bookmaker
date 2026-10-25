@@ -222,9 +222,7 @@ def tiny_png(path: Path) -> Path:
 
     header = struct.pack(">IIBBBBB", 2, 2, 8, 2, 0, 0, 0)
     pixels = zlib.compress(b"".join(b"\x00" + b"\xff\x00\x00" * 2 for _ in range(2)))
-    path.write_bytes(
-        b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", pixels) + chunk(b"IEND", b"")
-    )
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", pixels) + chunk(b"IEND", b""))
     return path
 
 
@@ -236,8 +234,7 @@ def stream_kinds(path: Path) -> list[str]:
         check=True,
     )
     return [
-        "cover" if s["disposition"]["attached_pic"] else s["codec_type"]
-        for s in json.loads(probe.stdout)["streams"]
+        "cover" if s["disposition"]["attached_pic"] else s["codec_type"] for s in json.loads(probe.stdout)["streams"]
     ]
 
 
@@ -301,7 +298,9 @@ def test_cli_chapter_offset_matches_concat_gaps_for_paragraph_ends_and_pause_tag
 
     probe = subprocess.run(
         ["ffprobe", "-v", "error", "-show_chapters", "-of", "json", str(tmp_path / "book.m4b")],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     starts = [round(float(c["start_time"]) * 1000) for c in json.loads(probe.stdout)["chapters"]]
     assert starts == [0, pytest.approx(second_chapter_ms, abs=5)]

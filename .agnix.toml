@@ -1,0 +1,2 @@
+[rules]
+disabled_rules = ["CDX-AG-005"] # AGENTS.md cites node_modules/next/..., which exists only after bun install
