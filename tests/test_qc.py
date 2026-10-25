@@ -6,16 +6,19 @@ from toni.qc import Thresholds, expected_seconds, spoken_form, verdict, word_err
 CHUNKS = TEXT.split("\n\n")
 
 
-@pytest.mark.parametrize("reference,hypothesis,expected", [
-    ("a b c d", "a b c d", 0.0),
-    ("a b c d", "a b d", 0.25),
-    ("Прив+ет, мир!", "привет мир", 0.0),
-    ("", "", 0.0),
-    ("", "x", 1.0),
-    ("你好世界", "你好世", 0.25),
-    ("twenty-five dollars", "twenty five dollars", 0.0),
-    ("a — b", "a b", 0.0),
-])
+@pytest.mark.parametrize(
+    "reference,hypothesis,expected",
+    [
+        ("a b c d", "a b c d", 0.0),
+        ("a b c d", "a b d", 0.25),
+        ("Прив+ет, мир!", "привет мир", 0.0),
+        ("", "", 0.0),
+        ("", "x", 1.0),
+        ("你好世界", "你好世", 0.25),
+        ("twenty-five dollars", "twenty five dollars", 0.0),
+        ("a — b", "a b", 0.0),
+    ],
+)
 def test_word_error_rate_table(reference, hypothesis, expected) -> None:
     assert word_error_rate(reference, hypothesis) == expected
 

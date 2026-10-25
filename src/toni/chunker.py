@@ -7,11 +7,34 @@ from toni.lexicon import apply_lexicon
 from toni.pause_tags import MAX_PAUSE_MS, parse_pause_tags
 from toni.text_normalization import normalization_enabled, normalize_speech_text
 
-ABBREVIATIONS = frozenset({
-    "mr", "mrs", "ms", "dr", "prof", "st", "jr", "sr", "vs", "etc",
-    "e.g", "i.e", "a.m", "p.m", "vol", "ch", "fig",
-    "т.е", "т.д", "т.п", "г", "гг", "ул", "проф",
-})
+ABBREVIATIONS = frozenset(
+    {
+        "mr",
+        "mrs",
+        "ms",
+        "dr",
+        "prof",
+        "st",
+        "jr",
+        "sr",
+        "vs",
+        "etc",
+        "e.g",
+        "i.e",
+        "a.m",
+        "p.m",
+        "vol",
+        "ch",
+        "fig",
+        "т.е",
+        "т.д",
+        "т.п",
+        "г",
+        "гг",
+        "ул",
+        "проф",
+    }
+)
 INITIAL = re.compile(r"[A-ZА-ЯЁ]")
 SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?…])\s+(?=[\"«\'(\u2014-]?\+?[^\W\d_a-zа-яё])")
 CLAUSE_MARK = r"(?:(?<!\d)[,:]|[,:](?!\d)|[;\-—])"
@@ -58,8 +81,7 @@ def chunk_with_marks(
             )
             pieces[-1] = (*pieces[-1][:2], pieces[-1][2] and breaks_paragraph)
         chunks.extend(
-            Chunk(spoken, speed=segment.speed, raw_text=raw, ends_paragraph=ends)
-            for raw, spoken, ends in pieces
+            Chunk(spoken, speed=segment.speed, raw_text=raw, ends_paragraph=ends) for raw, spoken, ends in pieces
         )
         if pieces:
             chunks[-1].pause_ms = segment.pause_ms
@@ -102,12 +124,9 @@ def _chunk_plain(
         if len(spoken) <= max_chars:
             chunks.append((raw, spoken, True))
             continue
-        pieces = [
-            end_with_punctuation(piece) for piece in split_paragraph(spoken, max_chars)
-        ]
+        pieces = [end_with_punctuation(piece) for piece in split_paragraph(spoken, max_chars)]
         chunks.extend(
-            (raw if index == 0 else piece, piece, index == len(pieces) - 1)
-            for index, piece in enumerate(pieces)
+            (raw if index == 0 else piece, piece, index == len(pieces) - 1) for index, piece in enumerate(pieces)
         )
 
     return merge_unspeakable(chunks, max_chars)
@@ -124,9 +143,7 @@ def end_with_punctuation(chunk: str, mark: str = ".") -> str:
     return chunk if TERMINAL_PUNCTUATION.search(chunk) else chunk + mark
 
 
-def merge_unspeakable(
-    chunks: list[tuple[str, str, bool]], max_chars: int
-) -> list[tuple[str, str, bool]]:
+def merge_unspeakable(chunks: list[tuple[str, str, bool]], max_chars: int) -> list[tuple[str, str, bool]]:
     """Fold chunks with no letters or digits into the previous or next chunk; drop them if neither fits."""
     merged: list[tuple[str, str, bool]] = []
     carry: tuple[str, str, bool] | None = None
@@ -246,8 +263,8 @@ def split_into_sentences(text: str) -> list[str]:
     sentences = []
     start = 0
     for boundary in SENTENCE_BOUNDARY.finditer(text):
-        if not ends_with_abbreviation(text[start:boundary.start()], text[boundary.end():]):
-            sentences.append(text[start:boundary.start()])
+        if not ends_with_abbreviation(text[start : boundary.start()], text[boundary.end() :]):
+            sentences.append(text[start : boundary.start()])
             start = boundary.end()
     sentences.append(text[start:])
     return [s.strip() for s in sentences if s.strip()]
@@ -279,9 +296,7 @@ def split_long_sentence(sentence: str, max_chars: int) -> list[str]:
     current = ""
 
     for i, part in enumerate(parts):
-        if re.match(clause_pattern, part):
-            current += part
-        elif len(current) + len(part) <= max_chars:
+        if re.match(clause_pattern, part) or len(current) + len(part) <= max_chars:
             current += part
         else:
             if current:

@@ -1,9 +1,10 @@
 """OmniVoice TTS engine implementation."""
 
+import importlib
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 
@@ -74,9 +75,7 @@ class OmniVoiceEngine(TTSEngine):
             import torch
             from omnivoice import OmniVoice
         except ImportError:
-            raise ImportError(
-                "omnivoice is not installed. Install it with: uv sync --extra omni"
-            )
+            raise ImportError("omnivoice is not installed. Install it with: uv sync --extra omni")
 
         device = self._resolve_device()
         self._model = OmniVoice.from_pretrained(
@@ -91,7 +90,8 @@ class OmniVoiceEngine(TTSEngine):
             return
         try:
             import torch
-            import triton
+
+            importlib.import_module("triton")
         except ImportError:
             return
         self._eager_llm = self._model.llm
@@ -118,9 +118,7 @@ class OmniVoiceEngine(TTSEngine):
             ref_text = os.environ.get("TONI_REF_TEXT")
             if ref_text is None and getattr(self._model, "_asr_pipe", None) is None:
                 self._model.load_asr_model()
-            self._prompts[key] = self._model.create_voice_clone_prompt(
-                key, ref_text=ref_text
-            )
+            self._prompts[key] = self._model.create_voice_clone_prompt(key, ref_text=ref_text)
         return self._prompts[key]
 
     def generate(
@@ -154,9 +152,7 @@ class OmniVoiceEngine(TTSEngine):
         kwargs = {
             "text": texts,
             "language": os.environ.get("TONI_LANGUAGE") or None,
-            "generation_config": OmniVoiceGenerationConfig(
-                num_step=int(os.environ.get("TONI_OMNI_NUM_STEP", "32"))
-            ),
+            "generation_config": OmniVoiceGenerationConfig(num_step=int(os.environ.get("TONI_OMNI_NUM_STEP", "32"))),
         }
         base_speed = float(os.environ.get("TONI_OMNI_SPEED") or 1.0)
         if speed or base_speed != 1.0:

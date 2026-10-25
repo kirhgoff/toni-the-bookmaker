@@ -2,7 +2,7 @@ import re
 import statistics
 import unicodedata
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cache
 
 from toni.text_normalization import normalization_enabled, normalize_speech_text
 
@@ -49,7 +49,7 @@ def word_error_rate(reference: str, hypothesis: str) -> float:
     return edit_distance(ref, hyp) / len(ref)
 
 
-@lru_cache(maxsize=None)
+@cache
 def _weigh():
     try:
         from omnivoice.utils.duration import RuleDurationEstimator
@@ -64,11 +64,7 @@ def expected_seconds(
     ref_seconds: float | None = None,
     speed: float = 1.0,
 ) -> float:
-    rate = (
-        _weigh()(ref_text) / ref_seconds
-        if ref_text and ref_seconds
-        else DEFAULT_WEIGHT_PER_SECOND
-    )
+    rate = _weigh()(ref_text) / ref_seconds if ref_text and ref_seconds else DEFAULT_WEIGHT_PER_SECOND
     return _weigh()(text) / rate / speed
 
 
@@ -76,9 +72,7 @@ def calibration_median(ratios: list[float]) -> float | None:
     return statistics.median(ratios) if len(ratios) >= MIN_CALIBRATION_SAMPLES else None
 
 
-def verdict(
-    wer: float, ratio: float, expected: float, t: Thresholds, median: float | None = None
-) -> str:
+def verdict(wer: float, ratio: float, expected: float, t: Thresholds, median: float | None = None) -> str:
     # OmniVoice stretches estimates under ~50 tokens, so short chunks always read long
     judged = ratio / min(max(median, t.ratio_min), t.ratio_max) if median else ratio
     duration_ok = expected < MIN_CHECKED_SECONDS or t.ratio_min <= judged <= t.ratio_max

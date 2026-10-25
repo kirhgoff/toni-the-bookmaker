@@ -8,8 +8,8 @@ DEFAULT_PAUSE_MS = 350
 MAX_PAUSE_MS = 10_000
 SLOW_SPEED = 0.85
 
-TAG_CANDIDATE = re.compile(r"\[\s*/?\s*(?:pause|slow)\b[^\]]*\]", re.I)
-PAUSE_TAG = re.compile(r"\[\s*pause(?:\s+(\d+(?:\.\d+)?)\s*(ms|s))?\s*\]", re.I)
+TAG_CANDIDATE = re.compile(r"\[\s*/?\s*(?:pause|slow)\b[^\]]*\]", re.IGNORECASE)
+PAUSE_TAG = re.compile(r"\[\s*pause(?:\s+(\d+(?:\.\d+)?)\s*(ms|s))?\s*\]", re.IGNORECASE)
 
 
 @dataclass
@@ -42,7 +42,7 @@ def parse_pause_tags(text: str) -> list[Segment]:
         if not (pause or opens_slow or closes_slow):
             warnings.warn(f"Malformed pacing tag left as text: {tag}")
             continue
-        buffer += text[position:match.start()]
+        buffer += text[position : match.start()]
         position = match.end()
         if pause:
             flush(_pause_ms(pause))

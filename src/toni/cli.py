@@ -3,9 +3,9 @@
 import os
 import shutil
 import wave
+from collections.abc import Callable
 from multiprocessing import get_context
 from pathlib import Path
-from typing import Callable
 
 import click
 import numpy as np
@@ -34,7 +34,6 @@ from toni.seed import chunk_seed, seed_everything
 from toni.text_extractor import extract_text
 from toni.tts import get_engine, list_engines
 from toni.work_manager import WorkManager, run_fingerprint
-
 
 MAX_BATCH = 16
 
@@ -181,9 +180,7 @@ def _process_chunk_recursive(
     except Exception as e:
         error_msg = str(e)
         if verbose:
-            click.echo(
-                f"\nChunk {chunk_id} failed (depth={current_depth}): {error_msg[:100]}"
-            )
+            click.echo(f"\nChunk {chunk_id} failed (depth={current_depth}): {error_msg[:100]}")
 
         if current_depth < max_depth:
             if verbose:
@@ -297,8 +294,7 @@ def qc_pass(
         heard.append((cid, text, wer, ratio, seconds))
 
     median = calibration_median(
-        [ratio for _, _, _, ratio, seconds in heard if seconds >= MIN_CHECKED_SECONDS]
-        + _checked_ratios(work, expected)
+        [ratio for _, _, _, ratio, seconds in heard if seconds >= MIN_CHECKED_SECONDS] + _checked_ratios(work, expected)
     )
     checked = flipped = gave_up = 0
     for cid, text, wer, ratio, seconds in heard:
@@ -418,8 +414,7 @@ def _chunk_marks(chunk) -> dict:
     "--bitrate",
     type=str,
     default="64k",
-    help="MP3 bitrate. 64k matches commercial audiobooks; "
-    "MP3 at 24kHz mono cannot exceed 160k.",
+    help="MP3 bitrate. 64k matches commercial audiobooks; MP3 at 24kHz mono cannot exceed 160k.",
 )
 @click.option(
     "--chapter-pattern",
@@ -470,8 +465,7 @@ def _chunk_marks(chunk) -> dict:
     type=click.IntRange(0, MAX_BATCH),
     default=0,
     envvar="TONI_BATCH",
-    help="Chunks per model call for engines that batch (0 = auto, max 16). "
-    "Batching runs in one process.",
+    help="Chunks per model call for engines that batch (0 = auto, max 16). Batching runs in one process.",
 )
 @click.option(
     "--qc/--no-qc",
@@ -637,9 +631,7 @@ def main(
             if chunk.raw_text != chunk.text:
                 work.save_chunk_raw_text(str(i), chunk.raw_text)
 
-        reused = sum(
-            work.restore_from_cache(str(i), chunk.text) for i, chunk in enumerate(chunks)
-        )
+        reused = sum(work.restore_from_cache(str(i), chunk.text) for i, chunk in enumerate(chunks))
         click.echo(f"Reused {reused} chunks from cache")
 
         click.echo(f"Saved {total_chunks} text chunks to {work.chunks_dir}")
@@ -662,15 +654,19 @@ def main(
 
     totals = [0, 0, 0, 0]
     while True:
-        render_pending(
-            work, manifest.model, voice_file_for_tts, max_retries, workers, batch, verbose
-        )
+        render_pending(work, manifest.model, voice_file_for_tts, max_retries, workers, batch, verbose)
         if not qc or not work.get_unchecked_chunks():
             break
         click.echo("Checking chunks...")
         try:
             counts = qc_pass(
-                work, load_asr, thresholds, qc_retries, max_retries, expected, manifest.sample_rate,
+                work,
+                load_asr,
+                thresholds,
+                qc_retries,
+                max_retries,
+                expected,
+                manifest.sample_rate,
                 os.environ.get("TONI_LANGUAGE"),
             )
         except ImportError:
@@ -694,9 +690,7 @@ def main(
 
     if progress["failed"] > 0:
         failed_chunks = work.get_failed_chunks()
-        click.echo(
-            f"Warning: {len(failed_chunks)} chunks failed: {failed_chunks[:10]}..."
-        )
+        click.echo(f"Warning: {len(failed_chunks)} chunks failed: {failed_chunks[:10]}...")
 
     audio_chunk_ids = work.get_all_audio_chunks_ordered()
     if not audio_chunk_ids:
@@ -833,18 +827,14 @@ def process_chunks_parallel(
     ) as pool:
         results = pool.imap_unordered(_process_chunk_in_worker, tasks)
 
-        for chunk_id, success, generated_ids in tqdm(
-            results, total=total, desc="Processing", unit="chunk"
-        ):
+        for chunk_id, success, generated_ids in tqdm(results, total=total, desc="Processing", unit="chunk"):
             if success:
                 completed += 1
             else:
                 failed += 1
 
     if verbose:
-        click.echo(
-            f"\nParallel processing complete: {completed} succeeded, {failed} failed"
-        )
+        click.echo(f"\nParallel processing complete: {completed} succeeded, {failed} failed")
 
 
 if __name__ == "__main__":

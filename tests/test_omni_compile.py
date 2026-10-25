@@ -20,7 +20,7 @@ class FakeModel:
 
 @pytest.fixture
 def cuda_engine(monkeypatch):
-    import torch
+    torch = pytest.importorskip("torch")
 
     monkeypatch.setenv("TONI_OMNI_COMPILE", "1")
     monkeypatch.setitem(sys.modules, "triton", types.ModuleType("triton"))
@@ -76,7 +76,7 @@ def test_numbered_cuda_device_compiles(cuda_engine, monkeypatch) -> None:
 
 
 def test_numbered_cuda_device_sizes_batches_by_that_device(monkeypatch) -> None:
-    import torch
+    torch = pytest.importorskip("torch")
 
     asked = []
     monkeypatch.setenv("TONI_OMNI_DEVICE", "cuda:1")
