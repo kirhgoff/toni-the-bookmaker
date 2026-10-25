@@ -8,7 +8,7 @@ local fast = new Mapping<String, Step> {
     ["typos"] = Builtins.typos
     ["actionlint"] = Builtins.actionlint
     ["zizmor"] {
-        glob = List(".github/workflows/*.yml", ".github/workflows/*.yaml")
+        glob = List(".github/workflows/*.yml", ".github/workflows/*.yaml", ".github/dependabot.yml")
         check = "zizmor --no-progress {{ files }}"
     }
     ["agnix"] {
