@@ -1,0 +1,27 @@
+# One toolchain for developers, git hooks and CI: `mise install`, then `mise run check`.
+[tools]
+bun = "1.4.4"
+uv = "0.13.5"
+hk = "2.8.1"
+pkl = "0.32.2"
+betterleaks = "1.9.0"
+typos = "1.51.1"
+actionlint = "1.7.12"
+zizmor = "1.31.1"
+ruff = "0.17.2"
+hadolint = "2.15.1"
+shellcheck = "0.11.0"
+"pipx:deptry" = "0.25.1"
+"github:agent-sh/agnix" = "0.59.2"
+
+[tasks.setup]
+description = "Install dependencies and the git hooks"
+run = ["bun install --frozen-lockfile", "uv sync", "hk install"]
+
+[tasks.check]
+description = "Run every check, the same set CI runs"
+run = "hk check --all"
+
+[tasks.fix]
+description = "Apply the automatic fixes"
+run = "hk fix --all"

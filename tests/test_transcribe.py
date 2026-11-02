@@ -15,6 +15,7 @@ def asr_calls(monkeypatch):
         def asr(inputs, **call_kwargs):
             calls.append(call_kwargs)
             return {"text": " привет "}
+
         return asr
 
     monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(float32="f32", float16="f16"))
@@ -34,9 +35,7 @@ def transcribe(device="cpu", seconds=1):
 def test_language_is_passed_to_whisper(asr_calls, monkeypatch):
     monkeypatch.setenv("TONI_LANGUAGE", "ru")
     assert transcribe() == "привет"
-    assert asr_calls == [
-        {"return_timestamps": False, "generate_kwargs": {"language": "ru", "task": "transcribe"}}
-    ]
+    assert asr_calls == [{"return_timestamps": False, "generate_kwargs": {"language": "ru", "task": "transcribe"}}]
 
 
 def test_language_is_auto_detected_when_unset(asr_calls, monkeypatch):

@@ -101,7 +101,9 @@ def test_epub_every_heading_in_a_file_is_a_chapter(tmp_path):
 
 
 def test_epub_toc_fragment_does_not_retitle_a_split_file(tmp_path):
-    opf = re.sub(r"<spine>.*</spine>", '<spine><itemref idref="c0"/><itemref idref="c1"/></spine>', OPF, flags=re.S)
+    opf = re.sub(
+        r"<spine>.*</spine>", '<spine><itemref idref="c0"/><itemref idref="c1"/></spine>', OPF, flags=re.DOTALL
+    )
     opf = opf.replace(
         "</manifest>",
         '<item id="c0" href="c0.xhtml" media-type="application/xhtml+xml"/>'
@@ -223,7 +225,9 @@ def test_epub3_landmarks_drop_toc_listed_front_matter(tmp_path):
 
 def test_epub2_guide_drops_toc_listed_front_matter(tmp_path):
     opf = OPF.replace("</package>", '<guide><reference type="copyright-page" href="legal.xhtml"/></guide></package>')
-    opf = opf.replace('<item id="note"', '<item id="legal" href="legal.xhtml" media-type="application/xhtml+xml"/><item id="note"')
+    opf = opf.replace(
+        '<item id="note"', '<item id="legal" href="legal.xhtml" media-type="application/xhtml+xml"/><item id="note"'
+    )
     opf = opf.replace('<itemref idref="nav"/>', '<itemref idref="legal"/>')
     nav = NAV.replace("</ol>", '<li><a href="legal.xhtml">Legal</a></li></ol>')
     epub = build_epub(
@@ -317,7 +321,9 @@ def with_cover(tmp_path, opf_item: str, opf_meta: str = "", data: bytes = PNG_BY
 
 
 def test_epub3_cover_image_is_extracted(tmp_path):
-    epub = with_cover(tmp_path, '<item id="img" href="images/art.png" properties="cover-image" media-type="image/png"/>')
+    epub = with_cover(
+        tmp_path, '<item id="img" href="images/art.png" properties="cover-image" media-type="image/png"/>'
+    )
     assert epub_cover(epub) == (".png", PNG_BYTES)
 
 
@@ -356,7 +362,9 @@ def run_extractor(epub, out, *extra):
 
 
 def test_cli_saves_the_epub_cover_only_when_the_book_folder_has_none(tmp_path):
-    epub = with_cover(tmp_path, '<item id="img" href="images/art.png" properties="cover-image" media-type="image/png"/>')
+    epub = with_cover(
+        tmp_path, '<item id="img" href="images/art.png" properties="cover-image" media-type="image/png"/>'
+    )
     book = tmp_path / "library"
     book.mkdir()
     run_extractor(epub, book / "source.txt", "--cover-dir", str(book))
@@ -391,7 +399,9 @@ def test_epub_contents_page_of_links_is_not_narrated(tmp_path):
 
 
 def multi_file_epub(tmp_path: Path, chapters: list[str], titles: list[str]) -> Path:
-    items = "".join(f'<item id="c{i}" href="c{i}.xhtml" media-type="application/xhtml+xml"/>' for i in range(len(chapters)))
+    items = "".join(
+        f'<item id="c{i}" href="c{i}.xhtml" media-type="application/xhtml+xml"/>' for i in range(len(chapters))
+    )
     spine = "".join(f'<itemref idref="c{i}"/>' for i in range(len(chapters)))
     opf = (
         '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0"><manifest>'

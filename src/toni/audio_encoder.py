@@ -5,8 +5,8 @@ import os
 import re
 import subprocess
 import wave
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 
@@ -96,9 +96,7 @@ def frame_levels(audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, int]:
     return np.sqrt(np.mean(padded.reshape(-1, frame) ** 2, axis=1)), frame
 
 
-def trim_edges(
-    audio: np.ndarray, sample_rate: int, margin_ms: int = EDGE_MARGIN_MS
-) -> np.ndarray:
+def trim_edges(audio: np.ndarray, sample_rate: int, margin_ms: int = EDGE_MARGIN_MS) -> np.ndarray:
     audio = np.ravel(audio)
     if audio.size == 0:
         return audio
@@ -200,16 +198,14 @@ def build_chapters(
             position = index + 1
     else:
         for start, line in zip(starts, first_lines):
-            if line and len(line) <= MAX_HEADING_CHARS and heading.match(line):
-                if not chapters or chapters[-1][1] != line[:120]:
-                    chapters.append((start, line[:120]))
+            is_heading = line and len(line) <= MAX_HEADING_CHARS and heading.match(line)
+            if is_heading and (not chapters or chapters[-1][1] != line[:120]):
+                chapters.append((start, line[:120]))
 
     return chapters, offset
 
 
-def write_ffmetadata(
-    chapters: list[tuple[int, str]], total_ms: int, path: Path
-) -> None:
+def write_ffmetadata(chapters: list[tuple[int, str]], total_ms: int, path: Path) -> None:
     """Write chapter marks in ffmpeg's FFMETADATA format."""
     lines = [";FFMETADATA1"]
     for i, (start, title) in enumerate(chapters):
@@ -342,7 +338,7 @@ def concatenate_with_ffmpeg(
     cmd += ["-ar", str(sample_rate), str(output_path)]
 
     try:
-        result = subprocess.run(
+        subprocess.run(
             cmd,
             capture_output=True,
             text=True,

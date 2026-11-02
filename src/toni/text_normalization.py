@@ -11,13 +11,22 @@ MAX_DIGITS = 9
 
 ABBREVIATIONS = {
     "en": {
-        "mr": "Mister", "mrs": "Missus", "ms": "Miss", "dr": "Doctor",
-        "prof": "Professor", "capt": "Captain", "col": "Colonel",
-        "gen": "General", "lt": "Lieutenant", "sgt": "Sergeant",
+        "mr": "Mister",
+        "mrs": "Missus",
+        "ms": "Miss",
+        "dr": "Doctor",
+        "prof": "Professor",
+        "capt": "Captain",
+        "col": "Colonel",
+        "gen": "General",
+        "lt": "Lieutenant",
+        "sgt": "Sergeant",
     },
     "ru": {
-        "ул": "улица", "проф": "профессор",
-        "акад": "академик", "тов": "товарищ",
+        "ул": "улица",
+        "проф": "профессор",
+        "акад": "академик",
+        "тов": "товарищ",
     },
 }
 DECIMAL_SEPARATOR = {"en": ".", "ru": ","}

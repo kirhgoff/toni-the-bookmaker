@@ -70,7 +70,6 @@ class FakeEngine(TTSEngine):
         audios = [self._take(t) for t in texts]
         return audios[:-1] if self.drop_last_audio else audios
 
-
     def transcribe(self, audio: np.ndarray, sample_rate: int) -> str:
         self.transcribed += 1
         n = len(audio) % 1000
@@ -94,8 +93,22 @@ def run_toni(tmp_path: Path, text: str, *args: str, output: str = "book.mp3") ->
     tmp_path.mkdir(exist_ok=True)
     src = tmp_path / "book.txt"
     src.write_text(text, encoding="utf-8")
-    result = CliRunner().invoke(main, [
-        "-i", str(src), "-o", str(tmp_path / output), "-m", "pocket", "--workers", "1",
-        "--work-dir", str(tmp_path / "work"), *args], catch_exceptions=False)
+    result = CliRunner().invoke(
+        main,
+        [
+            "-i",
+            str(src),
+            "-o",
+            str(tmp_path / output),
+            "-m",
+            "pocket",
+            "--workers",
+            "1",
+            "--work-dir",
+            str(tmp_path / "work"),
+            *args,
+        ],
+        catch_exceptions=False,
+    )
     assert result.exit_code == 0, result.output
     return WorkManager(tmp_path / output, tmp_path / "work")

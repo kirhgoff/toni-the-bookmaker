@@ -53,9 +53,16 @@ def test_batches_never_mix_speeds(tmp_path) -> None:
 
     work = WorkManager(tmp_path / "book.mp3", tmp_path / "work")
     work.setup()
-    work.init_manifest(input_file=Path("in.txt"), output_file=Path("book.mp3"), model="omni",
-                       voice_file=None, sample_rate=24000, chunk_pause_ms=0, total_chunks=4,
-                       chunk_marks=[{}, {"speed": 0.85}, {}, {"speed": 0.85}])
+    work.init_manifest(
+        input_file=Path("in.txt"),
+        output_file=Path("book.mp3"),
+        model="omni",
+        voice_file=None,
+        sample_rate=24000,
+        chunk_pause_ms=0,
+        total_chunks=4,
+        chunk_marks=[{}, {"speed": 0.85}, {}, {"speed": 0.85}],
+    )
     for i in range(4):
         work.save_chunk_text(str(i), "x" * (i + 1))
     assert _batches(work, ["0", "1", "2", "3"], 2) == [["0", "2"], ["1", "3"]]

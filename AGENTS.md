@@ -12,7 +12,7 @@ Toni is a Bun/TypeScript audiobook driver with a Next.js App Router web interfac
 
 ## Verify
 
-Run `bun test`, `bun run typecheck`, and `bun run build` after changes. For changes to remote rendering, also verify against a configured test host rather than embedding machine-specific settings in source or docs.
+`mise run check` runs every lint, type, dependency, secret and test check (hk); CI runs the same command. Also run `bun run build` after changes. For changes to remote rendering, also verify against a configured test host rather than embedding machine-specific settings in source or docs.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

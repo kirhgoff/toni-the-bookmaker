@@ -10,7 +10,7 @@ def test_load_skips_comment_lines_and_blank_lines(tmp_path):
     assert load_lexicon(path) == {"gandalf": "Gand-alf"}
 
 
-def test_load_warns_about_unparseable_lines(tmp_path):
+def test_load_warns_about_unparsable_lines(tmp_path):
     path = tmp_path / "lexicon.txt"
     path.write_text("Gandalf = Gand-alf\nбезымянный\nBad =\n", encoding="utf-8")
     with pytest.warns(UserWarning) as caught:

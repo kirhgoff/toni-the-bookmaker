@@ -7,8 +7,8 @@ clones a voice without a supplied transcript.
 
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import click
 import numpy as np
@@ -23,11 +23,7 @@ def load_transcriber(device: str | None = None) -> Callable[[np.ndarray, int], s
     from toni.text_normalization import base_language
 
     if device is None:
-        device = (
-            "mps" if torch.backends.mps.is_available()
-            else "cuda" if torch.cuda.is_available()
-            else "cpu"
-        )
+        device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
     asr = pipeline(
         "automatic-speech-recognition",
         model="openai/whisper-large-v3-turbo",
@@ -35,9 +31,7 @@ def load_transcriber(device: str | None = None) -> Callable[[np.ndarray, int], s
         torch_dtype=torch.float32 if device == "cpu" else torch.float16,
     )
     language = base_language(os.environ.get("TONI_LANGUAGE"))
-    generate_kwargs = (
-        {"language": language, "task": "transcribe"} if language in TO_LANGUAGE_CODE.values() else {}
-    )
+    generate_kwargs = {"language": language, "task": "transcribe"} if language in TO_LANGUAGE_CODE.values() else {}
 
     def transcribe(waveform: np.ndarray, sample_rate: int) -> str:
         return asr(
@@ -60,8 +54,9 @@ def transcribe_reference(audio_path: Path, device: str = "cpu") -> str:
 
 @click.command()
 @click.argument("audio", type=click.Path(exists=True, path_type=Path))
-@click.option("-o", "--output", type=click.Path(path_type=Path), default=None,
-              help="Write the transcript here instead of stdout.")
+@click.option(
+    "-o", "--output", type=click.Path(path_type=Path), default=None, help="Write the transcript here instead of stdout."
+)
 @click.option("--device", default="cpu", help="Device for the ASR model.")
 def main(audio: Path, output: Path | None, device: str) -> None:
     """Transcribe AUDIO and print the text."""

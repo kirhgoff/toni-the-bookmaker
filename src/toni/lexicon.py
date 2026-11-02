@@ -19,7 +19,7 @@ def load_lexicon(path: Path) -> dict[str, str]:
         if separator and term.strip() and respelling.strip():
             lexicon[_fold(term.strip())] = respelling.strip()
         else:
-            warnings.warn(f"Ignoring unparseable lexicon line: {line}")
+            warnings.warn(f"Ignoring unparsable lexicon line: {line}")
     return lexicon
 
 

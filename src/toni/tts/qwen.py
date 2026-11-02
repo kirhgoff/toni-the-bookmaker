@@ -1,8 +1,8 @@
 """Qwen3-TTS engine implementation."""
 
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 
@@ -70,9 +70,7 @@ class QwenTTSEngine(TTSEngine):
             import torch
             from qwen_tts import Qwen3TTSModel
         except ImportError:
-            raise ImportError(
-                "qwen-tts is not installed. Install it with: uv sync --extra qwen"
-            )
+            raise ImportError("qwen-tts is not installed. Install it with: uv sync --extra qwen")
 
         device = self._resolve_device()
         self._model = Qwen3TTSModel.from_pretrained(
@@ -88,9 +86,7 @@ class QwenTTSEngine(TTSEngine):
         progress_callback: Callable[[float], None] | None = None,
     ) -> np.ndarray:
         if voice_sample is None:
-            raise ValueError(
-                "qwen requires a voice sample to clone (-v); it has no designed-voice mode"
-            )
+            raise ValueError("qwen requires a voice sample to clone (-v); it has no designed-voice mode")
         ref_text = os.environ.get("TONI_REF_TEXT")
         if not ref_text:
             raise ValueError("qwen requires TONI_REF_TEXT (transcript of the voice sample) for cloning")

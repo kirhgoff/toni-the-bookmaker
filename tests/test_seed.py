@@ -23,4 +23,4 @@ def test_same_text_gets_same_rng_regardless_of_position(fake, tmp_path) -> None:
     assert manifest.seed == 0
 
     run_toni(tmp_path / "again", text, "--seed", "5")
-    assert [rng for t, rng in fake.takes[3:] if t == "Same little line."][0] != same[0]
+    assert next(rng for t, rng in fake.takes[3:] if t == "Same little line.") != same[0]

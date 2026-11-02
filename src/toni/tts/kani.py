@@ -1,7 +1,7 @@
 """Kani TTS 2 engine implementation."""
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 
@@ -38,9 +38,7 @@ class KaniTTSEngine(TTSEngine):
         try:
             from kani_tts import KaniTTS, SpeakerEmbedder
         except ImportError:
-            raise ImportError(
-                "kani-tts-2 is not installed. Install it with: uv sync --extra kani"
-            )
+            raise ImportError("kani-tts-2 is not installed. Install it with: uv sync --extra kani")
 
         self._model = KaniTTS("nineninesix/kani-tts-2-en")
         self._embedder = SpeakerEmbedder()

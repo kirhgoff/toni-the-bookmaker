@@ -1,8 +1,8 @@
 """ESpeech-TTS-1 engine implementation."""
 
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 import soundfile as sf
@@ -15,7 +15,7 @@ from toni.tts.base import TTSEngine
 MODEL_REPO = "ESpeech/ESpeech-TTS-1_RL-V2"
 CHECKPOINT_FILENAME = "espeech_tts_rlv2.pt"
 VOCAB_FILENAME = "vocab.txt"
-DIT_CONFIG = dict(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_layers=4)
+DIT_CONFIG = {"dim": 1024, "depth": 22, "heads": 16, "ff_mult": 2, "text_dim": 512, "conv_layers": 4}
 
 
 F5_CLIP_SECONDS = 12.0
@@ -99,9 +99,7 @@ class ESpeechTTSEngine(TTSEngine):
             from f5_tts.model import DiT
             from huggingface_hub import hf_hub_download
         except ImportError:
-            raise ImportError(
-                "f5-tts is not installed. Install it with: uv sync --extra espeech"
-            )
+            raise ImportError("f5-tts is not installed. Install it with: uv sync --extra espeech")
 
         ckpt_file = hf_hub_download(repo_id=MODEL_REPO, filename=CHECKPOINT_FILENAME)
         vocab_file = hf_hub_download(repo_id=MODEL_REPO, filename=VOCAB_FILENAME)
@@ -116,9 +114,7 @@ class ESpeechTTSEngine(TTSEngine):
         progress_callback: Callable[[float], None] | None = None,
     ) -> np.ndarray:
         if voice_sample is None:
-            raise ValueError(
-                "espeech requires a voice sample to clone (-v); it has no designed-voice mode"
-            )
+            raise ValueError("espeech requires a voice sample to clone (-v); it has no designed-voice mode")
 
         if self._model is None:
             self.load()
@@ -135,9 +131,7 @@ class ESpeechTTSEngine(TTSEngine):
         pause = np.zeros(int(pause_ms / 1000 * self.sample_rate), dtype=np.float32)
         parts: list[np.ndarray] = []
         for index, sentence in enumerate(sentences):
-            wav, _sample_rate, _spectrogram = infer_process(
-                ref_audio, ref_text, sentence, self._model, self._vocoder
-            )
+            wav, _sample_rate, _spectrogram = infer_process(ref_audio, ref_text, sentence, self._model, self._vocoder)
             if parts:
                 parts.append(pause)
             parts.append(tighten_silence(np.asarray(wav, dtype=np.float32), self.sample_rate))

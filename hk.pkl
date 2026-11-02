@@ -1,0 +1,72 @@
+amends "package://github.com/jdx/hk/releases/download/v2.8.1/hk@2.8.1#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.8.1/hk@2.8.1#/Builtins.pkl"
+
+local fast = new Mapping<String, Step> {
+    ["betterleaks"] {
+        check = "betterleaks git --staged --no-banner"
+    }
+    ["typos"] = Builtins.typos
+    ["actionlint"] = Builtins.actionlint
+    ["zizmor"] {
+        glob = List(".github/workflows/*.yml", ".github/workflows/*.yaml", ".github/dependabot.yml")
+        check = "zizmor --no-progress {{ files }}"
+    }
+    ["agnix"] {
+        glob = List("AGENTS.md", "CLAUDE.md", ".agents/skills/**/*", ".claude/skills/**", ".agnix.toml")
+        check = "agnix --strict . && agnix --strict .claude/skills/*/SKILL.md"
+    }
+    ["ruff-check"] {
+        glob = List("**/*.py")
+        check = "ruff check {{ files }}"
+        fix = "ruff check --fix {{ files }}"
+    }
+    ["ruff-format"] {
+        glob = List("**/*.py")
+        check = "ruff format --check {{ files }}"
+        fix = "ruff format {{ files }}"
+    }
+    ["shellcheck"] {
+        glob = List("**/*.sh")
+        check = "shellcheck {{ files }}"
+    }
+    ["hadolint"] {
+        glob = List("Dockerfile")
+        check = "hadolint {{ files }}"
+    }
+}
+
+local all = (fast) {
+    ["betterleaks"] {
+        check = "betterleaks git --no-banner"
+    }
+    ["deptry"] {
+        check = "deptry ."
+    }
+    ["typecheck"] {
+        check = "bun run typecheck"
+    }
+    ["bun-test"] {
+        check = "bun test"
+    }
+    ["pytest"] {
+        check = "uv run pytest -q"
+    }
+}
+
+hooks {
+    ["pre-commit"] {
+        fix = true
+        stash = "git"
+        steps = fast
+    }
+    ["pre-push"] {
+        steps = all
+    }
+    ["check"] {
+        steps = all
+    }
+    ["fix"] {
+        fix = true
+        steps = all
+    }
+}

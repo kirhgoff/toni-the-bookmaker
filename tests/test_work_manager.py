@@ -15,9 +15,15 @@ def _mark_completed(args):
 def test_concurrent_status_writes(tmp_path: Path) -> None:
     work = WorkManager(tmp_path / "book.mp3", work_base=tmp_path / "work")
     work.setup()
-    work.init_manifest(input_file=Path("in.txt"), output_file=Path("book.mp3"),
-                       model="omni", voice_file=None, sample_rate=24000,
-                       chunk_pause_ms=0, total_chunks=40)
+    work.init_manifest(
+        input_file=Path("in.txt"),
+        output_file=Path("book.mp3"),
+        model="omni",
+        voice_file=None,
+        sample_rate=24000,
+        chunk_pause_ms=0,
+        total_chunks=40,
+    )
 
     ids = [str(i) for i in range(40)]
     with Pool(processes=8) as pool:
@@ -31,9 +37,15 @@ def test_concurrent_status_writes(tmp_path: Path) -> None:
 def test_nested_splits_are_collected(tmp_path: Path) -> None:
     work = WorkManager(tmp_path / "book.mp3", work_base=tmp_path / "work")
     work.setup()
-    work.init_manifest(input_file=Path("in.txt"), output_file=Path("book.mp3"),
-                       model="omni", voice_file=None, sample_rate=24000,
-                       chunk_pause_ms=0, total_chunks=1)
+    work.init_manifest(
+        input_file=Path("in.txt"),
+        output_file=Path("book.mp3"),
+        model="omni",
+        voice_file=None,
+        sample_rate=24000,
+        chunk_pause_ms=0,
+        total_chunks=1,
+    )
 
     work.add_sub_chunk("0", "0_0", "a")
     work.add_sub_chunk("0_0", "0_0_0", "a")
@@ -53,9 +65,16 @@ if __name__ == "__main__":
 def test_ends_paragraph_survives_splits(tmp_path: Path) -> None:
     work = WorkManager(tmp_path / "book.mp3", work_base=tmp_path / "work")
     work.setup()
-    work.init_manifest(input_file=Path("in.txt"), output_file=Path("book.mp3"),
-                       model="omni", voice_file=None, sample_rate=24000,
-                       chunk_pause_ms=0, total_chunks=2, paragraph_ends=[True, False])
+    work.init_manifest(
+        input_file=Path("in.txt"),
+        output_file=Path("book.mp3"),
+        model="omni",
+        voice_file=None,
+        sample_rate=24000,
+        chunk_pause_ms=0,
+        total_chunks=2,
+        paragraph_ends=[True, False],
+    )
 
     work.add_sub_chunk("0", "0_0", "a")
     work.add_sub_chunk("0", "0_1", "b")
@@ -66,9 +85,16 @@ def test_ends_paragraph_survives_splits(tmp_path: Path) -> None:
 def test_paragraph_ends_loads_the_manifest_once(tmp_path: Path, monkeypatch) -> None:
     work = WorkManager(tmp_path / "book.mp3", work_base=tmp_path / "work")
     work.setup()
-    work.init_manifest(input_file=Path("in.txt"), output_file=Path("book.mp3"),
-                       model="omni", voice_file=None, sample_rate=24000,
-                       chunk_pause_ms=0, total_chunks=2, paragraph_ends=[True, False])
+    work.init_manifest(
+        input_file=Path("in.txt"),
+        output_file=Path("book.mp3"),
+        model="omni",
+        voice_file=None,
+        sample_rate=24000,
+        chunk_pause_ms=0,
+        total_chunks=2,
+        paragraph_ends=[True, False],
+    )
     work.add_sub_chunk("0", "0_0", "a")
     work.add_sub_chunk("0", "0_1", "b")
 
@@ -83,9 +109,15 @@ def test_paragraph_ends_loads_the_manifest_once(tmp_path: Path, monkeypatch) -> 
 def _work_with_chunks(tmp_path: Path, total: int) -> WorkManager:
     work = WorkManager(tmp_path / "book.mp3", work_base=tmp_path / "work")
     work.setup()
-    work.init_manifest(input_file=Path("in.txt"), output_file=Path("book.mp3"),
-                       model="omni", voice_file=None, sample_rate=8000,
-                       chunk_pause_ms=0, total_chunks=total)
+    work.init_manifest(
+        input_file=Path("in.txt"),
+        output_file=Path("book.mp3"),
+        model="omni",
+        voice_file=None,
+        sample_rate=8000,
+        chunk_pause_ms=0,
+        total_chunks=total,
+    )
     return work
 
 

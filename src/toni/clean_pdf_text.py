@@ -63,7 +63,9 @@ def main() -> None:
     parser.add_argument("--from", dest="from_line", type=int, default=1, help="first line to keep (1-based)")
     parser.add_argument("--to", dest="to_line", type=int, help="last line to keep (inclusive)")
     parser.add_argument("--heading", default=DEFAULT_HEADING, help="regex a whole heading line must match")
-    parser.add_argument("--indent", type=int, help="min leading spaces of a paragraph's first line (default: most common indent + 2)")
+    parser.add_argument(
+        "--indent", type=int, help="min leading spaces of a paragraph's first line (default: most common indent + 2)"
+    )
     args = parser.parse_args()
 
     lines = args.input.read_text(encoding="utf-8").splitlines()[args.from_line - 1 : args.to_line]

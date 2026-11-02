@@ -70,8 +70,13 @@ def test_manifest_stays_compatible_and_split_chunk_pause_follows_last_sub_chunk(
     work = WorkManager(tmp_path / "book.mp3", work_base=tmp_path / "work")
     work.setup()
     work.init_manifest(
-        input_file=Path("in.txt"), output_file=Path("book.mp3"), model="omni",
-        voice_file=None, sample_rate=24000, chunk_pause_ms=0, total_chunks=3,
+        input_file=Path("in.txt"),
+        output_file=Path("book.mp3"),
+        model="omni",
+        voice_file=None,
+        sample_rate=24000,
+        chunk_pause_ms=0,
+        total_chunks=3,
         chunk_marks=[{"pause_ms": 800, "speed": 0.85}, {}, {"pause_ms": 100}],
     )
     work.add_sub_chunk("0", "0_0", "a")
@@ -87,7 +92,9 @@ def test_manifest_stays_compatible_and_split_chunk_pause_follows_last_sub_chunk(
     assert work.get_extra_pauses(["1"]) == [0]
 
 
-@pytest.mark.parametrize("tag, expected_ms", [("[PAUSE]", 350), ("[Pause 1s]", 1000), ("[ pause ]", 350), ("[pause 2 S]", 2000)])
+@pytest.mark.parametrize(
+    "tag, expected_ms", [("[PAUSE]", 350), ("[Pause 1s]", 1000), ("[ pause ]", 350), ("[pause 2 S]", 2000)]
+)
 def test_tag_variants_in_case_and_spacing_parse_and_are_not_spoken(tag, expected_ms):
     result = marks(f"A. {tag} B.")
     assert result == [("A.", expected_ms, None), ("B.", 0, None)]

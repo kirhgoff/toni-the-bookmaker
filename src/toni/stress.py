@@ -20,9 +20,7 @@ def _load_accentor():
         try:
             from silero_stress import load_accentor
         except ImportError:
-            raise ImportError(
-                "silero-stress is not installed. Install it with: uv sync --extra stress"
-            )
+            raise ImportError("silero-stress is not installed. Install it with: uv sync --extra stress")
         _accentor = load_accentor()
     return _accentor
 
