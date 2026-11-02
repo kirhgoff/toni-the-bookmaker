@@ -19,20 +19,20 @@ kani = ["kani-tts-2", "transformers>=4.50.0"]
 omni = [
     "omnivoice>=0.2.1",
     "torch==2.8.0",
-    "torchaudio==2.8.0",
+    "torchaudio==2.11.0",
     "soundfile>=0.12.1",
 ]
 espeech = [
     "f5-tts>=1.1.22",
     "torch==2.8.0",
-    "torchaudio==2.8.0",
+    "torchaudio==2.11.0",
     "soundfile>=0.12.1",
     "toni[stress]",
 ]
 qwen = [
     "qwen-tts",
     "torch==2.8.0",
-    "torchaudio==2.8.0",
+    "torchaudio==2.11.0",
     "soundfile>=0.12.1",
 ]
 stress = ["silero-stress"]
