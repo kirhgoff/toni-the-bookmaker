@@ -18,7 +18,7 @@
     "@types/bun": "latest",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "typescript": "^5"
+    "typescript": "^7"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.3",
